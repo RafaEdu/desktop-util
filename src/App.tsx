@@ -1,227 +1,149 @@
-import { useEffect, useState, useCallback } from "react";
-import Database from "@tauri-apps/plugin-sql";
-import { CheckCircle2, Circle, Plus, Trash2, ListTodo } from "lucide-react";
-import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-import dayjs from "dayjs";
+import { useEffect, useState } from "react";
+import { Wrench, Pin, PinOff, Minus } from "lucide-react";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
+import { cn } from "./lib/cn";
+import { showWindowAboveTray } from "./lib/window";
+import { Tasks } from "./components/Tasks";
+import { Timer } from "./components/Timer";
 
-// ── Utility ──────────────────────────────────────────────────────
-function cn(...inputs: (string | undefined | false)[]) {
-  return twMerge(clsx(inputs));
-}
+type Tab = "tasks" | "timer";
 
-// ── Types ────────────────────────────────────────────────────────
-interface Todo {
-  id: number;
-  title: string;
-  done: number; // 0 or 1 (SQLite boolean)
-  created_at: string;
-}
-
-// ── Database singleton ───────────────────────────────────────────
-let dbInstance: Database | null = null;
-
-async function getDb(): Promise<Database> {
-  if (!dbInstance) {
-    dbInstance = await Database.load("sqlite:todo.db");
-  }
-  return dbInstance;
-}
-
-// ── Component ────────────────────────────────────────────────────
 function App() {
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [newTitle, setNewTitle] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [movableMode, setMovableMode] = useState(() => {
+    return localStorage.getItem("movableMode") === "true";
+  });
 
-  // ── Load all todos ──────────────────────────────────────────
-  const loadTodos = useCallback(async () => {
-    try {
-      const db = await getDb();
-      const rows = await db.select<Todo[]>(
-        "SELECT * FROM todos ORDER BY done ASC, created_at DESC",
-      );
-      setTodos(rows);
-    } catch (err) {
-      console.error("Failed to load todos:", err);
-    } finally {
-      setLoading(false);
+  // ── Initial window setup on mount ──────────────────────────
+  useEffect(() => {
+    async function initWindow() {
+      const win = getCurrentWindow();
+      const initialMovable = localStorage.getItem("movableMode") === "true";
+
+      // Sync state to Rust backend
+      await invoke("set_movable_mode", { enabled: initialMovable });
+
+      if (initialMovable) {
+        await win.setDecorations(true);
+        const savedPos = localStorage.getItem("windowPosition");
+        if (savedPos) {
+          const { x, y } = JSON.parse(savedPos);
+          await win.setPosition(new PhysicalPosition(x, y));
+        }
+      } else {
+        await win.setDecorations(false);
+        await showWindowAboveTray();
+        return; // showWindowAboveTray already calls show + setFocus
+      }
+
+      await win.show();
+      await win.setFocus();
     }
+    initWindow();
   }, []);
 
+  // ── Save position when moved (movable mode) ───────────────
   useEffect(() => {
-    loadTodos();
-  }, [loadTodos]);
+    if (!movableMode) return;
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    win
+      .onMoved(({ payload }) => {
+        localStorage.setItem(
+          "windowPosition",
+          JSON.stringify({ x: payload.x, y: payload.y }),
+        );
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => {
+      unlisten?.();
+    };
+  }, [movableMode]);
 
-  // ── Add todo ────────────────────────────────────────────────
-  const addTodo = async () => {
-    const title = newTitle.trim();
-    if (!title) return;
+  // ── Toggle movable mode ────────────────────────────────────
+  const toggleMovableMode = async () => {
+    const newMode = !movableMode;
+    setMovableMode(newMode);
+    localStorage.setItem("movableMode", String(newMode));
 
-    try {
-      const db = await getDb();
-      await db.execute("INSERT INTO todos (title) VALUES (?)", [title]);
-      setNewTitle("");
-      await loadTodos();
-    } catch (err) {
-      console.error("Failed to add todo:", err);
+    const win = getCurrentWindow();
+    await win.setDecorations(newMode);
+    await invoke("set_movable_mode", { enabled: newMode });
+
+    if (!newMode) {
+      // Switching to pinned: reposition above tray
+      await showWindowAboveTray();
     }
   };
 
-  // ── Toggle done ─────────────────────────────────────────────
-  const toggleTodo = async (todo: Todo) => {
-    try {
-      const db = await getDb();
-      await db.execute("UPDATE todos SET done = ? WHERE id = ?", [
-        todo.done ? 0 : 1,
-        todo.id,
-      ]);
-      await loadTodos();
-    } catch (err) {
-      console.error("Failed to toggle todo:", err);
-    }
+  // ── Hide window (minimize to tray) ─────────────────────────
+  const hideWindow = async () => {
+    const win = getCurrentWindow();
+    await win.hide();
   };
 
-  // ── Delete todo ─────────────────────────────────────────────
-  const deleteTodo = async (id: number) => {
-    try {
-      const db = await getDb();
-      await db.execute("DELETE FROM todos WHERE id = ?", [id]);
-      await loadTodos();
-    } catch (err) {
-      console.error("Failed to delete todo:", err);
-    }
-  };
-
-  // ── Stats ───────────────────────────────────────────────────
-  const doneCount = todos.filter((t) => t.done).length;
-  const totalCount = todos.length;
-
-  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
       {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800 px-6 py-4">
+      <header className="bg-gray-900 border-b border-gray-800 px-4 py-2.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <ListTodo className="w-6 h-6 text-indigo-400" />
-            <h1 className="text-xl font-bold tracking-tight">To-Do</h1>
+          <div className="flex items-center gap-2">
+            <Wrench className="w-5 h-5 text-indigo-400" />
+            <h1 className="text-lg font-bold tracking-tight">Util</h1>
           </div>
-          <span className="text-sm text-gray-500">
-            {doneCount}/{totalCount} concluídas
-          </span>
+
+          {/* Tabs */}
+          <nav className="flex gap-1">
+            {(["tasks", "timer"] as Tab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                  activeTab === tab
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
+                )}
+              >
+                {tab === "tasks" ? "Tarefas" : "Timer"}
+              </button>
+            ))}
+          </nav>
+
+          {/* Controls */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleMovableMode}
+              className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+              title={movableMode ? "Fixar na bandeja" : "Modo livre"}
+            >
+              {movableMode ? (
+                <PinOff className="w-4 h-4" />
+              ) : (
+                <Pin className="w-4 h-4" />
+              )}
+            </button>
+            <button
+              onClick={hideWindow}
+              className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+              title="Minimizar para bandeja"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Add Form */}
-      <div className="px-6 py-4 bg-gray-900/50 border-b border-gray-800">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            addTodo();
-          }}
-          className="flex gap-3"
-        >
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Adicionar nova tarefa..."
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm
-                       text-gray-100 placeholder-gray-500
-                       focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                       transition-all duration-200"
-          />
-          <button
-            type="submit"
-            disabled={!newTitle.trim()}
-            className={cn(
-              "flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-              newTitle.trim()
-                ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25"
-                : "bg-gray-800 text-gray-600 cursor-not-allowed",
-            )}
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar
-          </button>
-        </form>
-      </div>
-
-      {/* Todo List */}
-      <main className="flex-1 overflow-y-auto px-6 py-4">
-        {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : todos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-gray-600">
-            <ListTodo className="w-12 h-12 mb-3 opacity-40" />
-            <p className="text-sm">Nenhuma tarefa ainda. Adicione uma acima!</p>
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {todos.map((todo) => (
-              <li
-                key={todo.id}
-                className={cn(
-                  "group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all duration-200",
-                  todo.done
-                    ? "bg-gray-900/30 border-gray-800/50"
-                    : "bg-gray-900 border-gray-800 hover:border-gray-700",
-                )}
-              >
-                {/* Toggle Button */}
-                <button
-                  onClick={() => toggleTodo(todo)}
-                  className="flex-shrink-0 transition-colors duration-200"
-                  title={
-                    todo.done ? "Marcar como pendente" : "Marcar como concluída"
-                  }
-                >
-                  {todo.done ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                  ) : (
-                    <Circle className="w-5 h-5 text-gray-600 hover:text-indigo-400" />
-                  )}
-                </button>
-
-                {/* Task Text */}
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "text-sm truncate transition-all duration-200",
-                      todo.done
-                        ? "line-through text-gray-600"
-                        : "text-gray-200",
-                    )}
-                  >
-                    {todo.title}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-0.5">
-                    {dayjs(todo.created_at).format("DD/MM/YYYY [às] HH:mm")}
-                  </p>
-                </div>
-
-                {/* Delete Button */}
-                <button
-                  onClick={() => deleteTodo(todo.id)}
-                  className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                             text-gray-600 hover:text-red-400"
-                  title="Excluir tarefa"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </main>
+      {/* Content */}
+      {activeTab === "tasks" ? <Tasks /> : <Timer />}
 
       {/* Footer */}
-      <footer className="px-6 py-3 bg-gray-900 border-t border-gray-800">
+      <footer className="px-4 py-2 bg-gray-900 border-t border-gray-800">
         <p className="text-xs text-gray-600 text-center">
-          Minimizar fecha para a bandeja • Botão direito no ícone para opções
+          Clique no ícone da bandeja para mostrar/ocultar
         </p>
       </footer>
     </div>

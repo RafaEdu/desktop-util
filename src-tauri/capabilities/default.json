@@ -29,6 +29,10 @@
     "core:window:allow-close",
     "core:window:allow-set-focus",
     "core:window:allow-is-visible",
+    "core:window:allow-set-position",
+    "core:window:allow-set-decorations",
+    "core:window:allow-current-monitor",
+    "core:window:allow-outer-size",
 
     "core:tray:default"
   ]
