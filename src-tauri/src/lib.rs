@@ -47,6 +47,18 @@ pub fn run() {
                             sql: "ALTER TABLE todos ADD COLUMN completed_at TEXT;",
                             kind: tauri_plugin_sql::MigrationKind::Up,
                         },
+                        tauri_plugin_sql::Migration {
+                            version: 3,
+                            description: "add sort_order column",
+                            sql: "ALTER TABLE todos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;",
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 4,
+                            description: "initialize sort_order from id",
+                            sql: "UPDATE todos SET sort_order = id;",
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

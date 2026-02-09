@@ -1,10 +1,25 @@
 import { useEffect, useState, useCallback } from "react";
-import { Circle, Plus, Trash2, ListTodo, Undo2 } from "lucide-react";
+import {
+  Circle,
+  Plus,
+  Trash2,
+  ListTodo,
+  Undo2,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import dayjs from "dayjs";
 import { cn } from "../lib/cn";
 import { getDb, type Todo } from "../lib/db";
 
 type SubTab = "active" | "history";
+
+/** Parse a SQLite UTC datetime string into a local dayjs object. */
+function formatTs(timestamp: string): string {
+  // SQLite datetime('now') returns UTC without suffix — append 'Z' so dayjs
+  // knows it's UTC and converts to local time for display.
+  return dayjs(timestamp + "Z").format("DD/MM/YYYY [às] HH:mm");
+}
 
 export function Tasks() {
   const [subTab, setSubTab] = useState<SubTab>("active");
@@ -17,12 +32,14 @@ export function Tasks() {
       const db = await getDb();
       const query =
         subTab === "active"
-          ? "SELECT * FROM todos WHERE done = 0 ORDER BY created_at DESC"
+          ? "SELECT * FROM todos WHERE done = 0 ORDER BY sort_order ASC"
           : "SELECT * FROM todos WHERE done = 1 ORDER BY completed_at DESC";
+      console.log("[loadTodos] subTab:", subTab, "query:", query);
       const rows = await db.select<Todo[]>(query);
+      console.log("[loadTodos] rows:", rows);
       setTodos(rows);
     } catch (err) {
-      console.error("Failed to load todos:", err);
+      console.error("[loadTodos] FAILED:", err);
     } finally {
       setLoading(false);
     }
@@ -30,29 +47,51 @@ export function Tasks() {
 
   useEffect(() => {
     setLoading(true);
+    setTodos([]); // clear stale data from the other tab immediately
     loadTodos();
   }, [loadTodos]);
 
   const addTodo = async () => {
     const title = newTitle.trim();
     if (!title) return;
+    console.log("[addTodo] starting, title:", title);
     try {
       const db = await getDb();
-      await db.execute("INSERT INTO todos (title) VALUES (?)", [title]);
+      console.log("[addTodo] db loaded");
+
+      // Get next sort_order value
+      const maxRow = await db.select<{ max_order: number | null }[]>(
+        "SELECT MAX(sort_order) AS max_order FROM todos WHERE done = 0",
+      );
+      console.log("[addTodo] maxRow result:", maxRow);
+      const nextOrder = (maxRow[0]?.max_order ?? 0) + 1;
+      console.log("[addTodo] nextOrder:", nextOrder);
+
+      const result = await db.execute(
+        "INSERT INTO todos (title, sort_order) VALUES (?, ?)",
+        [title, nextOrder],
+      );
+      console.log("[addTodo] insert result:", result);
+
       setNewTitle("");
       await loadTodos();
     } catch (err) {
-      console.error("Failed to add todo:", err);
+      console.error("[addTodo] FAILED:", err);
     }
   };
 
   const toggleTodo = async (todo: Todo) => {
     try {
       const db = await getDb();
-      if (todo.done) {
+      if (Number(todo.done) === 1) {
+        // Restore to active — assign to end of sort order
+        const maxRow = await db.select<{ max_order: number | null }[]>(
+          "SELECT MAX(sort_order) AS max_order FROM todos WHERE done = 0",
+        );
+        const nextOrder = (maxRow[0]?.max_order ?? 0) + 1;
         await db.execute(
-          "UPDATE todos SET done = 0, completed_at = NULL WHERE id = ?",
-          [todo.id],
+          "UPDATE todos SET done = 0, completed_at = NULL, sort_order = ? WHERE id = ?",
+          [nextOrder, todo.id],
         );
       } else {
         await db.execute(
@@ -73,6 +112,30 @@ export function Tasks() {
       await loadTodos();
     } catch (err) {
       console.error("Failed to delete todo:", err);
+    }
+  };
+
+  const moveTodo = async (index: number, direction: "up" | "down") => {
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= todos.length) return;
+
+    const a = todos[index];
+    const b = todos[swapIndex];
+
+    try {
+      const db = await getDb();
+      // Swap sort_order values between the two items
+      await db.execute("UPDATE todos SET sort_order = ? WHERE id = ?", [
+        b.sort_order,
+        a.id,
+      ]);
+      await db.execute("UPDATE todos SET sort_order = ? WHERE id = ?", [
+        a.sort_order,
+        b.id,
+      ]);
+      await loadTodos();
+    } catch (err) {
+      console.error("Failed to move todo:", err);
     }
   };
 
@@ -158,12 +221,12 @@ export function Tasks() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {todos.map((todo) => (
+            {todos.map((todo, index) => (
               <li
                 key={todo.id}
                 className={cn(
                   "group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200",
-                  todo.done
+                  Number(todo.done) === 1
                     ? "bg-gray-900/30 border-gray-800/50"
                     : "bg-gray-900 border-gray-800 hover:border-gray-700",
                 )}
@@ -173,10 +236,12 @@ export function Tasks() {
                   onClick={() => toggleTodo(todo)}
                   className="flex-shrink-0 transition-colors duration-200"
                   title={
-                    todo.done ? "Restaurar tarefa" : "Marcar como concluída"
+                    Number(todo.done) === 1
+                      ? "Restaurar tarefa"
+                      : "Marcar como concluída"
                   }
                 >
-                  {todo.done ? (
+                  {Number(todo.done) === 1 ? (
                     <Undo2 className="w-4 h-4 text-gray-500 hover:text-indigo-400" />
                   ) : (
                     <Circle className="w-5 h-5 text-gray-600 hover:text-indigo-400" />
@@ -188,7 +253,7 @@ export function Tasks() {
                   <p
                     className={cn(
                       "text-sm truncate transition-all duration-200",
-                      todo.done
+                      Number(todo.done) === 1
                         ? "line-through text-gray-600"
                         : "text-gray-200",
                     )}
@@ -196,16 +261,46 @@ export function Tasks() {
                     {todo.title}
                   </p>
                   <p className="text-xs text-gray-600 mt-0.5">
-                    Criado em{" "}
-                    {dayjs(todo.created_at).format("DD/MM/YYYY [às] HH:mm")}
+                    Criado em {formatTs(todo.created_at)}
                   </p>
-                  {todo.done && todo.completed_at && (
+                  {Number(todo.done) === 1 && todo.completed_at && (
                     <p className="text-xs text-emerald-600 mt-0.5">
-                      Concluído em{" "}
-                      {dayjs(todo.completed_at).format("DD/MM/YYYY [às] HH:mm")}
+                      Concluído em {formatTs(todo.completed_at)}
                     </p>
                   )}
                 </div>
+
+                {/* Reorder Buttons — only in active tab */}
+                {subTab === "active" && (
+                  <div className="flex flex-col gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <button
+                      onClick={() => moveTodo(index, "up")}
+                      disabled={index === 0}
+                      className={cn(
+                        "p-0.5 rounded transition-colors",
+                        index === 0
+                          ? "text-gray-800 cursor-not-allowed"
+                          : "text-gray-600 hover:text-indigo-400",
+                      )}
+                      title="Mover para cima"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => moveTodo(index, "down")}
+                      disabled={index === todos.length - 1}
+                      className={cn(
+                        "p-0.5 rounded transition-colors",
+                        index === todos.length - 1
+                          ? "text-gray-800 cursor-not-allowed"
+                          : "text-gray-600 hover:text-indigo-400",
+                      )}
+                      title="Mover para baixo"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Delete Button */}
                 <button

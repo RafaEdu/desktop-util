@@ -6,6 +6,7 @@ export interface Todo {
   done: number; // 0 or 1 (SQLite boolean)
   created_at: string;
   completed_at: string | null;
+  sort_order: number;
 }
 
 let dbInstance: Database | null = null;
