@@ -6,11 +6,12 @@ import {
   Activity,
   Scissors,
   Star,
+  FileSearch,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
 
-type View = "dashboard" | "tools" | "links" | "certificates" | "status";
+type View = "dashboard" | "tools" | "links" | "certificates" | "status" | "nfe";
 
 interface DashboardCard {
   id: string;
@@ -85,6 +86,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       description: "Monitorar serviços gov",
       icon: Activity,
       view: "status",
+    },
+    {
+      id: "nfe",
+      title: "Consulta NFe",
+      description: "Visualizar DANFE",
+      icon: FileSearch,
+      view: "nfe",
     },
     {
       id: "capture",

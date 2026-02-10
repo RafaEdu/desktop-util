@@ -1,3 +1,5 @@
+mod nfe;
+
 use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -183,6 +185,7 @@ pub fn run() {
             set_movable_mode,
             get_certificates,
             start_screen_capture,
+            nfe::query_nfe,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
