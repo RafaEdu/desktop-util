@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
-import { Wrench, Pin, PinOff, Minus } from "lucide-react";
+import { Wrench, Pin, PinOff, Minus, ArrowLeft } from "lucide-react";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { cn } from "./lib/cn";
 import { showWindowAboveTray } from "./lib/window";
-import { Tasks } from "./components/Tasks";
-import { Timer } from "./components/Timer";
+import { Dashboard } from "./components/Dashboard";
+import { ToolsSection } from "./components/ToolsSection";
+import { QuickLinks } from "./components/QuickLinks";
+import { Certificates } from "./components/Certificates";
+import { ServiceStatus } from "./components/ServiceStatus";
 
-type Tab = "tasks" | "timer";
+type View = "dashboard" | "tools" | "links" | "certificates" | "status";
+
+const VIEW_TITLES: Record<View, string> = {
+  dashboard: "Hub",
+  tools: "Ferramentas",
+  links: "Links Rápidos",
+  certificates: "Certificados",
+  status: "Status de Serviços",
+};
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [activeView, setActiveView] = useState<View>("dashboard");
   const [movableMode, setMovableMode] = useState(() => {
     return localStorage.getItem("movableMode") === "true";
   });
@@ -91,27 +101,21 @@ function App() {
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-indigo-400" />
-            <h1 className="text-lg font-bold tracking-tight">Util</h1>
-          </div>
-
-          {/* Tabs */}
-          <nav className="flex gap-1">
-            {(["tasks", "timer"] as Tab[]).map((tab) => (
+            {activeView !== "dashboard" ? (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  activeTab === tab
-                    ? "bg-indigo-600 text-white"
-                    : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
-                )}
+                onClick={() => setActiveView("dashboard")}
+                className="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+                title="Voltar ao Dashboard"
               >
-                {tab === "tasks" ? "Tarefas" : "Timer"}
+                <ArrowLeft className="w-5 h-5" />
               </button>
-            ))}
-          </nav>
+            ) : (
+              <Wrench className="w-5 h-5 text-indigo-400" />
+            )}
+            <h1 className="text-lg font-bold tracking-tight">
+              {VIEW_TITLES[activeView]}
+            </h1>
+          </div>
 
           {/* Controls */}
           <div className="flex items-center gap-1">
@@ -138,7 +142,11 @@ function App() {
       </header>
 
       {/* Content */}
-      {activeTab === "tasks" ? <Tasks /> : <Timer />}
+      {activeView === "dashboard" && <Dashboard onNavigate={setActiveView} />}
+      {activeView === "tools" && <ToolsSection />}
+      {activeView === "links" && <QuickLinks />}
+      {activeView === "certificates" && <Certificates />}
+      {activeView === "status" && <ServiceStatus />}
 
       {/* Footer */}
       <footer className="px-4 py-2 bg-gray-900 border-t border-gray-800">

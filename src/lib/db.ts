@@ -9,6 +9,13 @@ export interface Todo {
   sort_order: number;
 }
 
+export interface QuickLink {
+  id: number;
+  title: string;
+  url: string;
+  created_at: string;
+}
+
 let dbInstance: Database | null = null;
 
 export async function getDb(): Promise<Database> {
