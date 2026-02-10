@@ -1,4 +1,5 @@
 // ── NFe Query Module ───────────────────────────────────────────
+use tauri::Manager;
 
 #[derive(serde::Serialize, Clone, Default)]
 pub struct NfeParty {
@@ -53,43 +54,38 @@ pub struct NfeData {
 pub async fn query_nfe(
     thumbprint: String,
     access_key: String,
-    cnpj: String,
-    uf_code: u32,
-    environment: String,
 ) -> Result<String, String> {
-    query_nfe_impl(thumbprint, access_key, cnpj, uf_code, environment).await
+    query_nfe_impl(thumbprint, access_key).await
 }
 
 #[cfg(windows)]
 async fn query_nfe_impl(
     thumbprint: String,
     access_key: String,
-    cnpj: String,
-    uf_code: u32,
-    environment: String,
 ) -> Result<String, String> {
-    // Validate inputs
+    // Validate access key
     if access_key.len() != 44 || !access_key.chars().all(|c| c.is_ascii_digit()) {
         return Err("Chave de acesso deve conter exatamente 44 dígitos numéricos".into());
     }
-    let cnpj_clean = cnpj.replace(|c: char| !c.is_ascii_digit(), "");
-    if cnpj_clean.len() != 14 {
-        return Err("CNPJ deve conter exatamente 14 dígitos numéricos".into());
+
+    // Extract UF code from access key (first 2 digits)
+    let uf_code: u32 = access_key[..2]
+        .parse()
+        .map_err(|_| "Código UF inválido na chave de acesso".to_string())?;
+
+    // 1. Export certificate as PFX and extract CNPJ
+    let (mut pfx_bytes, password, cnpj) = export_cert_pfx(&thumbprint)?;
+
+    if cnpj.is_empty() {
+        pfx_bytes.fill(0);
+        return Err("Não foi possível extrair o CNPJ do certificado selecionado. Verifique se é um e-CNPJ (A1).".into());
     }
 
-    // 1. Export certificate as PFX
-    let (mut pfx_bytes, password) = export_cert_pfx(&thumbprint)?;
+    // 2. Build SOAP envelope (always production)
+    let soap_xml = build_soap_request(&access_key, &cnpj, uf_code, "1");
 
-    // 2. Build SOAP envelope
-    let tp_amb = if environment == "production" { "1" } else { "2" };
-    let soap_xml = build_soap_request(&access_key, &cnpj_clean, uf_code, tp_amb);
-
-    // 3. Send request to SEFAZ
-    let endpoint = if environment == "production" {
-        "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
-    } else {
-        "https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
-    };
+    // 3. Send request to SEFAZ (production endpoint)
+    let endpoint = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
 
     let identity = reqwest::Identity::from_pkcs12_der(&pfx_bytes, &password)
         .map_err(|e| format!("Falha ao criar identidade TLS: {}", e))?;
@@ -128,27 +124,183 @@ async fn query_nfe_impl(
     // 5. Generate DANFE HTML
     let html = generate_danfe_html(&nfe_data);
 
-    // 6. Open in browser
-    open_html_in_browser(&html)?;
+    // 6. Save to temp file and return path
+    let path = save_html_to_temp(&html)?;
 
-    Ok("DANFE aberto no navegador com sucesso".to_string())
+    Ok(path)
 }
 
 #[cfg(not(windows))]
 async fn query_nfe_impl(
     _thumbprint: String,
     _access_key: String,
-    _cnpj: String,
-    _uf_code: u32,
-    _environment: String,
 ) -> Result<String, String> {
     Err("Consulta NFe disponível apenas no Windows".into())
 }
 
-// ── Certificate PFX Export (Windows) ───────────────────────────
+#[tauri::command]
+pub fn open_danfe(file_path: String) -> Result<(), String> {
+    open_danfe_impl(&file_path)
+}
 
 #[cfg(windows)]
-fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String), String> {
+fn open_danfe_impl(file_path: &str) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", file_path])
+        .spawn()
+        .map_err(|e| format!("Falha ao abrir navegador: {}", e))?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn open_danfe_impl(file_path: &str) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(file_path)
+        .spawn()
+        .map_err(|e| format!("Falha ao abrir navegador: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn download_danfe(source_path: String, access_key: String) -> Result<String, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| "Não foi possível localizar a pasta do usuário".to_string())?;
+    let downloads = std::path::PathBuf::from(home).join("Downloads");
+    if !downloads.exists() {
+        std::fs::create_dir_all(&downloads)
+            .map_err(|e| format!("Falha ao criar pasta Downloads: {}", e))?;
+    }
+    let filename = format!("DANFE_{}.html", &access_key[..20.min(access_key.len())]);
+    let dest = downloads.join(filename);
+    std::fs::copy(&source_path, &dest)
+        .map_err(|e| format!("Falha ao salvar arquivo: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+// ── Portal-Based Query (WebView with Captcha) ──────────────────
+
+#[tauri::command]
+pub async fn query_nfe_portal(
+    app: tauri::AppHandle,
+    access_key: String,
+) -> Result<(), String> {
+    // Close existing consultation window if open
+    if let Some(existing) = app.get_webview_window("sefaz-nfe") {
+        let _: Result<(), _> = existing.close();
+    }
+
+    let url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&tipoConteudo=XbSeqxE8pl8=";
+
+    let init_script = build_portal_init_script(&access_key);
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "sefaz-nfe",
+        tauri::WebviewUrl::External(url.parse().unwrap()),
+    )
+    .title("Consulta NFe - SEFAZ")
+    .inner_size(620.0, 740.0)
+    .center()
+    .initialization_script(&init_script)
+    .build()
+    .map_err(|e| format!("Falha ao abrir janela de consulta: {}", e))?;
+
+    Ok(())
+}
+
+fn build_portal_init_script(access_key: &str) -> String {
+    format!(
+        r#"(function() {{
+    'use strict';
+
+    var FILLED = false;
+    var ACTION_BAR_ADDED = false;
+
+    function prefillKey() {{
+        if (FILLED) return;
+        var key = '{access_key}';
+        var inputs = document.querySelectorAll('input[type="text"]');
+        for (var i = 0; i < inputs.length; i++) {{
+            var el = inputs[i];
+            var id = (el.id || '').toLowerCase();
+            var name = (el.name || '').toLowerCase();
+            if (id.indexOf('chave') !== -1 || name.indexOf('chave') !== -1) {{
+                el.value = key;
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                FILLED = true;
+                return;
+            }}
+        }}
+    }}
+
+    function hasNfeResults() {{
+        // Look for NFe-specific content that only appears after captcha
+        var body = document.body ? document.body.innerText : '';
+        if (body.indexOf('Chave de Acesso') !== -1 && body.indexOf('Emitente') !== -1) return true;
+        if (body.indexOf('DANFE') !== -1) return true;
+        if (document.querySelector('[id*="Emitente"]')) return true;
+        if (document.querySelector('[id*="Destinatario"]')) return true;
+        // Look for fieldsets about NFe data (these only appear in results)
+        var legends = document.querySelectorAll('legend, fieldset');
+        for (var i = 0; i < legends.length; i++) {{
+            var t = legends[i].innerText || '';
+            if (t.indexOf('Emitente') !== -1 || t.indexOf('Produto') !== -1 || t.indexOf('Total') !== -1) return true;
+        }}
+        return false;
+    }}
+
+    function addActionBar() {{
+        if (ACTION_BAR_ADDED) return;
+        if (!hasNfeResults()) return;
+        ACTION_BAR_ADDED = true;
+
+        var bar = document.createElement('div');
+        bar.id = 'uh-actions';
+        bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;padding:12px 20px;background:#1e293b;border-top:1px solid #334155;display:flex;gap:10px;justify-content:center;z-index:99999;box-shadow:0 -4px 16px rgba(0,0,0,0.4);';
+
+        var printBtn = document.createElement('button');
+        printBtn.textContent = 'Imprimir';
+        printBtn.style.cssText = 'background:#4f46e5;color:white;border:none;border-radius:8px;padding:10px 28px;cursor:pointer;font-weight:600;font-size:14px;min-width:140px;';
+        printBtn.onmouseenter = function() {{ this.style.background='#6366f1'; }};
+        printBtn.onmouseleave = function() {{ this.style.background='#4f46e5'; }};
+        printBtn.onclick = function() {{ window.print(); }};
+
+        bar.appendChild(printBtn);
+        document.body.appendChild(bar);
+        document.body.style.paddingBottom = '60px';
+    }}
+
+    function init() {{
+        // Prefill access key with retries (ASP.NET may render late)
+        prefillKey();
+        setTimeout(prefillKey, 500);
+        setTimeout(prefillKey, 1500);
+        setTimeout(prefillKey, 3000);
+
+        // Watch for NFe results after captcha is solved
+        if (document.body) {{
+            var observer = new MutationObserver(function() {{
+                addActionBar();
+            }});
+            observer.observe(document.body, {{ childList: true, subtree: true }});
+            addActionBar();
+        }}
+    }}
+
+    if (document.readyState === 'loading') {{
+        document.addEventListener('DOMContentLoaded', init);
+    }} else {{
+        init();
+    }}
+}})();"#,
+        access_key = access_key,
+    )
+}
+
+#[cfg(windows)]
+fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String> {
     use windows_sys::Win32::Security::Cryptography::*;
     use rand::Rng;
 
@@ -172,6 +324,9 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String), String> {
             CertCloseStore(store, 0);
             return Err("Certificado não encontrado com o thumbprint informado".into());
         }
+
+        // Extract CNPJ from certificate subject
+        let cnpj = extract_cnpj_from_cert(cert);
 
         // Create in-memory store for PFX export
         let mem_store = CertOpenStore(
@@ -249,7 +404,7 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String), String> {
             return Err("Falha ao exportar certificado como PFX".into());
         }
 
-        Ok((pfx_data, password))
+        Ok((pfx_data, password, cnpj))
     }
 }
 
@@ -301,6 +456,81 @@ unsafe fn get_cert_thumbprint(
         .map(|b| format!("{:02X}", b))
         .collect::<Vec<_>>()
         .join(":")
+}
+
+#[cfg(windows)]
+unsafe fn extract_cnpj_from_cert(
+    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+) -> String {
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    // Get simple display name (often "COMPANY:CNPJ")
+    let mut buf = vec![0u16; 512];
+    let len = CertGetNameStringW(
+        cert,
+        CERT_NAME_SIMPLE_DISPLAY_TYPE,
+        0,
+        std::ptr::null(),
+        buf.as_mut_ptr(),
+        buf.len() as u32,
+    );
+    let simple = if len > 1 {
+        String::from_utf16_lossy(&buf[..len as usize - 1])
+    } else {
+        String::new()
+    };
+
+    // Get full RDN subject
+    const LOCAL_CERT_NAME_RDN_TYPE: u32 = 2;
+    let mut rdn_buf = vec![0u16; 2048];
+    let rdn_len = CertGetNameStringW(
+        cert,
+        LOCAL_CERT_NAME_RDN_TYPE,
+        0,
+        std::ptr::null(),
+        rdn_buf.as_mut_ptr(),
+        rdn_buf.len() as u32,
+    );
+    let rdn = if rdn_len > 1 {
+        String::from_utf16_lossy(&rdn_buf[..rdn_len as usize - 1])
+    } else {
+        String::new()
+    };
+
+    // Extract CNPJ from either string
+    if let Some(cnpj) = find_cnpj_in_str(&simple) {
+        return cnpj;
+    }
+    if let Some(cnpj) = find_cnpj_in_str(&rdn) {
+        return cnpj;
+    }
+    String::new()
+}
+
+fn find_cnpj_in_str(s: &str) -> Option<String> {
+    // Pattern 1: after colon (e.g., "EMPRESA:12345678000190")
+    for part in s.split(':') {
+        let trimmed = part.trim();
+        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Some(trimmed.to_string());
+        }
+    }
+    // Pattern 2: any 14-digit contiguous sequence
+    let mut buf = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            buf.push(c);
+        } else {
+            if buf.len() == 14 {
+                return Some(buf);
+            }
+            buf.clear();
+        }
+    }
+    if buf.len() == 14 {
+        return Some(buf);
+    }
+    None
 }
 
 // ── SOAP Request Builder ───────────────────────────────────────
@@ -880,9 +1110,9 @@ fn format_cnpj_cpf(value: &str) -> String {
     }
 }
 
-// ── Open in Browser ────────────────────────────────────────────
+// ── Save HTML to Temp ────────────────────────────────────────────
 
-fn open_html_in_browser(html: &str) -> Result<(), String> {
+fn save_html_to_temp(html: &str) -> Result<String, String> {
     use std::io::Write;
     use rand::Rng;
 
@@ -895,21 +1125,5 @@ fn open_html_in_browser(html: &str) -> Result<(), String> {
     file.write_all(html.as_bytes())
         .map_err(|e| format!("Falha ao escrever arquivo DANFE: {}", e))?;
 
-    #[cfg(windows)]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &path.to_string_lossy()])
-            .spawn()
-            .map_err(|e| format!("Falha ao abrir navegador: {}", e))?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Falha ao abrir navegador: {}", e))?;
-    }
-
-    Ok(())
+    Ok(path.to_string_lossy().to_string())
 }

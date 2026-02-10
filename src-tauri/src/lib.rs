@@ -20,11 +20,12 @@ fn set_movable_mode(state: tauri::State<'_, AppState>, enabled: bool) {
 
 // ── Certificate Types ───────────────────────────────────────────
 #[derive(serde::Serialize)]
-struct CertInfo {
+pub struct CertInfo {
     subject: String,
     issuer: String,
     not_after: String,
     thumbprint: String,
+    cnpj: String,
 }
 
 #[tauri::command]
@@ -35,7 +36,6 @@ fn get_certificates() -> Result<Vec<CertInfo>, String> {
 #[cfg(windows)]
 fn certs_impl() -> Result<Vec<CertInfo>, String> {
     use windows_sys::Win32::Security::Cryptography::*;
-    //use windows_sys::Win32::Foundation::FILETIME;
 
     let mut results = Vec::new();
     let store_wide: Vec<u16> = "MY\0".encode_utf16().collect();
@@ -55,16 +55,19 @@ fn certs_impl() -> Result<Vec<CertInfo>, String> {
 
             let subject = cert_name_string(cert, 0);
             let issuer = cert_name_string(cert, CERT_NAME_ISSUER_FLAG);
+            let rdn_subject = cert_rdn_string(cert);
 
             let info = &*(*cert).pCertInfo;
             let not_after = filetime_to_iso(info.NotAfter);
             let thumbprint = cert_thumbprint(cert);
+            let cnpj = extract_cnpj_from_strings(&subject, &rdn_subject);
 
             results.push(CertInfo {
                 subject,
                 issuer,
                 not_after,
                 thumbprint,
+                cnpj,
             });
 
             prev = cert;
@@ -154,6 +157,66 @@ fn certs_impl() -> Result<Vec<CertInfo>, String> {
     Err("Listagem de certificados disponível apenas no Windows".into())
 }
 
+// ── CNPJ Extraction from Certificate ────────────────────────────
+
+#[cfg(windows)]
+unsafe fn cert_rdn_string(
+    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+) -> String {
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    const LOCAL_CERT_NAME_RDN_TYPE: u32 = 2;
+    let mut buf = vec![0u16; 2048];
+    let len = CertGetNameStringW(
+        cert,
+        LOCAL_CERT_NAME_RDN_TYPE,
+        0,
+        std::ptr::null(),
+        buf.as_mut_ptr(),
+        buf.len() as u32,
+    );
+    if len <= 1 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buf[..len as usize - 1])
+}
+
+fn extract_cnpj_from_strings(simple_name: &str, rdn: &str) -> String {
+    if let Some(cnpj) = find_cnpj_in_string(simple_name) {
+        return cnpj;
+    }
+    if let Some(cnpj) = find_cnpj_in_string(rdn) {
+        return cnpj;
+    }
+    String::new()
+}
+
+fn find_cnpj_in_string(s: &str) -> Option<String> {
+    // Pattern 1: after colon (e.g., "EMPRESA LTDA:12345678000190")
+    for part in s.split(':') {
+        let trimmed = part.trim();
+        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Some(trimmed.to_string());
+        }
+    }
+    // Pattern 2: any 14-digit contiguous sequence
+    let mut buf = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            buf.push(c);
+        } else {
+            if buf.len() == 14 {
+                return Some(buf);
+            }
+            buf.clear();
+        }
+    }
+    if buf.len() == 14 {
+        return Some(buf);
+    }
+    None
+}
+
 // ── Screen Capture ──────────────────────────────────────────────
 #[tauri::command]
 fn start_screen_capture() -> Result<(), String> {
@@ -186,6 +249,9 @@ pub fn run() {
             get_certificates,
             start_screen_capture,
             nfe::query_nfe,
+            nfe::open_danfe,
+            nfe::download_danfe,
+            nfe::query_nfe_portal,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
