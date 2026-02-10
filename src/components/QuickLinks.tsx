@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, ExternalLink, Link } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Link, Pencil, Check, X } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cn } from "../lib/cn";
 import { getDb, type QuickLink } from "../lib/db";
@@ -9,6 +9,9 @@ export function QuickLinks() {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editUrl, setEditUrl] = useState("");
 
   const loadLinks = useCallback(async () => {
     try {
@@ -46,6 +49,39 @@ export function QuickLinks() {
       await loadLinks();
     } catch (err) {
       console.error("Failed to add link:", err);
+    }
+  };
+
+  const startEdit = (link: QuickLink) => {
+    setEditingId(link.id);
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditTitle("");
+    setEditUrl("");
+  };
+
+  const saveEdit = async () => {
+    if (editingId === null) return;
+    const t = editTitle.trim();
+    let u = editUrl.trim();
+    if (!t || !u) return;
+    if (!u.startsWith("http://") && !u.startsWith("https://")) {
+      u = "https://" + u;
+    }
+    try {
+      const db = await getDb();
+      await db.execute(
+        "UPDATE quick_links SET title = ?, url = ? WHERE id = ?",
+        [t, u, editingId],
+      );
+      cancelEdit();
+      await loadLinks();
+    } catch (err) {
+      console.error("Failed to update link:", err);
     }
   };
 
@@ -129,38 +165,107 @@ export function QuickLinks() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {links.map((link) => (
-              <li
-                key={link.id}
-                className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border
-                           bg-gray-900 border-gray-800 hover:border-gray-700 transition-all duration-200"
-              >
-                <button
-                  onClick={() => handleOpenLink(link.url)}
-                  className="flex-1 min-w-0 text-left"
+            {links.map((link) =>
+              editingId === link.id ? (
+                <li
+                  key={link.id}
+                  className="px-3 py-2.5 rounded-lg border bg-gray-900 border-indigo-500/50 transition-all duration-200"
                 >
-                  <p className="text-sm text-gray-200 truncate">
-                    {link.title}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate">{link.url}</p>
-                </button>
-                <button
-                  onClick={() => handleOpenLink(link.url)}
-                  className="flex-shrink-0 text-gray-500 hover:text-indigo-400 transition-colors"
-                  title="Abrir link"
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveEdit();
+                    }}
+                    className="space-y-2"
+                  >
+                    <input
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      placeholder="Título..."
+                      autoFocus
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm
+                                 text-gray-100 placeholder-gray-500
+                                 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                                 transition-all duration-200"
+                    />
+                    <input
+                      type="text"
+                      value={editUrl}
+                      onChange={(e) => setEditUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm
+                                 text-gray-100 placeholder-gray-500
+                                 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                                 transition-all duration-200"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium
+                                   text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!editTitle.trim() || !editUrl.trim()}
+                        className={cn(
+                          "flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
+                          editTitle.trim() && editUrl.trim()
+                            ? "bg-indigo-600 hover:bg-indigo-500 text-white"
+                            : "bg-gray-800 text-gray-600 cursor-not-allowed",
+                        )}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Salvar
+                      </button>
+                    </div>
+                  </form>
+                </li>
+              ) : (
+                <li
+                  key={link.id}
+                  className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border
+                             bg-gray-900 border-gray-800 hover:border-gray-700 transition-all duration-200"
                 >
-                  <ExternalLink className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => deleteLink(link.id)}
-                  className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                             text-gray-600 hover:text-red-400"
-                  title="Excluir link"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </li>
-            ))}
+                  <button
+                    onClick={() => handleOpenLink(link.url)}
+                    className="flex-1 min-w-0 text-left"
+                  >
+                    <p className="text-sm text-gray-200 truncate">
+                      {link.title}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">{link.url}</p>
+                  </button>
+                  <button
+                    onClick={() => handleOpenLink(link.url)}
+                    className="flex-shrink-0 text-gray-500 hover:text-indigo-400 transition-colors"
+                    title="Abrir link"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => startEdit(link)}
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                               text-gray-600 hover:text-amber-400"
+                    title="Editar link"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteLink(link.id)}
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                               text-gray-600 hover:text-red-400"
+                    title="Excluir link"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </main>

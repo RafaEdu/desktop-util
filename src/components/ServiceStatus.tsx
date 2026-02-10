@@ -28,10 +28,21 @@ const SERVICES: ServiceDef[] = [
     name: "SEFAZ - NF-e",
     url: "https://www.nfe.fazenda.gov.br/portal/principal.aspx",
   },
-  { name: "ConecteSUS", url: "https://conectesus.saude.gov.br" },
   {
     name: "e-CAC",
     url: "https://cav.receita.fazenda.gov.br",
+  },
+  {
+    name: "NFSe Nacional",
+    url: "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional",
+  },
+  {
+    name: "Cloudflare",
+    url: "https://www.cloudflarestatus.com",
+  },
+  {
+    name: "PIX (BCB)",
+    url: "https://www.bcb.gov.br/estabilidadefinanceira/pix",
   },
 ];
 

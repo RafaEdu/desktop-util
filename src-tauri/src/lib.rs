@@ -33,7 +33,7 @@ fn get_certificates() -> Result<Vec<CertInfo>, String> {
 #[cfg(windows)]
 fn certs_impl() -> Result<Vec<CertInfo>, String> {
     use windows_sys::Win32::Security::Cryptography::*;
-    use windows_sys::Win32::Foundation::FILETIME;
+    //use windows_sys::Win32::Foundation::FILETIME;
 
     let mut results = Vec::new();
     let store_wide: Vec<u16> = "MY\0".encode_utf16().collect();
