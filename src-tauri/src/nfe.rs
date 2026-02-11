@@ -339,100 +339,158 @@ fn build_portal_init_script(access_key: &str) -> String {
         return d;
     }}
 
+    function barcode128c(k) {{
+        var P=['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+        var c=[105];
+        for(var i=0;i<k.length;i+=2)c.push(parseInt(k.substr(i,2)));
+        var s=c[0];for(var j=1;j<c.length;j++)s+=c[j]*j;
+        c.push(s%103);c.push(106);
+        var pat='';for(var m=0;m<c.length;m++)pat+=P[c[m]];
+        var cv=document.createElement('canvas');
+        var sc=2,tw=0;
+        for(var n=0;n<pat.length;n++)tw+=parseInt(pat[n]);
+        cv.width=(tw+20)*sc;cv.height=55;
+        var ctx=cv.getContext('2d');
+        ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+        var x=10*sc;
+        for(var q=0;q<pat.length;q++){{
+            var bw=parseInt(pat[q])*sc;
+            if(q%2===0){{ctx.fillStyle='#000';ctx.fillRect(x,0,bw,cv.height);}}
+            x+=bw;
+        }}
+        return cv.toDataURL();
+    }}
+
     function danfe() {{
         if (RENDERED) return;
         RENDERED = true;
 
         var d = scrape();
         var cf = d.chave.replace(/(\d{{4}})/g, '$1 ').trim();
+        var bc = barcode128c(d.chave);
 
-        var sc = '';
         var sl = (d.sit || '').toLowerCase();
-        if (sl.includes('autoriz')) sc = 'background:#f0fdf4;color:#166534';
-        else if (sl.includes('cancel') || sl.includes('denega')) sc = 'background:#fef2f2;color:#991b1b';
+        var stCls = sl.includes('autoriz') ? 'sa' : (sl.includes('cancel') || sl.includes('denega')) ? 'sc' : 'so';
 
         var p = [];
         p.push('<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">');
         p.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
         p.push('<title>DANFE - NF-e ' + (d.num || '') + '</title><style>');
         p.push('*{{margin:0;padding:0;box-sizing:border-box}}');
-        p.push('body{{font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:0 auto;padding:20px 20px 80px;color:#1a1a1a;background:#fff}}');
-        p.push('.hdr{{text-align:center;border:2px solid #000;padding:15px;margin-bottom:2px}}');
-        p.push('.hdr h1{{font-size:22px;margin-bottom:4px}}.hdr .sub{{font-size:12px;color:#555}}');
-        p.push('.kb{{border:2px solid #000;padding:10px;text-align:center;margin-bottom:2px}}');
-        p.push('.kb .l{{font-size:10px;color:#555;text-transform:uppercase}}');
-        p.push('.kb .k{{font-family:"Courier New",monospace;font-size:15px;letter-spacing:1px;margin-top:4px}}');
-        p.push('.sit{{text-align:center;padding:8px;margin-bottom:2px;border:2px solid #000;font-weight:bold}}');
-        p.push('.prt{{border:2px solid #000;padding:8px;margin-bottom:2px;text-align:center;font-size:11px}}');
-        p.push('.sec{{border:2px solid #000;padding:10px;margin-bottom:2px}}');
-        p.push('.st{{font-size:11px;text-transform:uppercase;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px;margin-bottom:8px;font-weight:bold}}');
-        p.push('.fr{{display:flex;gap:15px;margin-bottom:6px;flex-wrap:wrap}}');
-        p.push('.fd{{flex:1;min-width:120px}}');
-        p.push('.fd .l{{font-size:9px;text-transform:uppercase;color:#777}}');
-        p.push('.fd .v{{font-size:12px;font-weight:500}}');
-        p.push('.tb{{border:2px solid #000;padding:12px;margin-bottom:2px;text-align:center}}');
-        p.push('.tb .l{{font-size:10px;color:#555;text-transform:uppercase}}');
-        p.push('.tb .v{{font-size:24px;font-weight:bold;margin-top:4px}}');
-        p.push('.act{{position:fixed;bottom:0;left:0;right:0;padding:12px 20px;background:#1e293b;border-top:1px solid #334155;display:flex;gap:10px;justify-content:center;z-index:99999;box-shadow:0 -4px 16px rgba(0,0,0,.4)}}');
-        p.push('.act button{{border:none;border-radius:8px;padding:10px 28px;cursor:pointer;font-weight:600;font-size:14px;min-width:140px;background:#4f46e5;color:#fff}}');
+        p.push('body{{font-family:Arial,Helvetica,sans-serif;background:#d1d5db;color:#000;padding-bottom:70px}}');
+        p.push('.pg{{max-width:800px;margin:20px auto;background:#fff;border:1px solid #000;box-shadow:0 4px 24px rgba(0,0,0,.15)}}');
+        p.push('@media print{{body{{background:#fff;padding:0}}.pg{{margin:0;border:none;box-shadow:none}}.act{{display:none!important}}body{{padding-bottom:0!important}}}}');
+
+        /* Header grid: emitter | DANFE id */
+        p.push('.dh{{display:grid;grid-template-columns:1fr 180px;border-bottom:2px solid #000}}');
+        p.push('.dhe{{padding:12px;border-right:2px solid #000}}');
+        p.push('.dhe .en{{font-size:15px;font-weight:bold;margin-bottom:6px}}');
+        p.push('.dhe .ed{{font-size:10px;color:#333;line-height:1.7}}');
+        p.push('.dhd{{padding:12px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center}}');
+        p.push('.dhd .dl{{font-size:24px;font-weight:bold;letter-spacing:4px}}');
+        p.push('.dhd .ds{{font-size:8px;color:#555;margin:4px 0 10px;line-height:1.4}}');
+        p.push('.dhd .dn{{font-size:15px;font-weight:bold}}');
+        p.push('.dhd .dsr{{font-size:10px;color:#555;margin-top:2px}}');
+
+        /* Barcode */
+        p.push('.bc{{border-bottom:2px solid #000;padding:10px 12px;text-align:center}}');
+        p.push('.bc img{{height:50px;max-width:100%}}');
+        p.push('.bc .bl{{font-size:8px;color:#777;text-transform:uppercase;margin-top:6px}}');
+        p.push('.bc .bk{{font-family:"Courier New",monospace;font-size:12px;letter-spacing:2px;margin-top:2px}}');
+
+        /* Status row */
+        p.push('.sr{{border-bottom:2px solid #000;padding:8px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}}');
+        p.push('.sb{{display:inline-block;padding:4px 14px;border-radius:3px;font-size:11px;font-weight:bold;text-transform:uppercase}}');
+        p.push('.sa{{background:#dcfce7;color:#166534;border:1px solid #86efac}}');
+        p.push('.sc{{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5}}');
+        p.push('.so{{background:#fefce8;color:#854d0e;border:1px solid #fde047}}');
+        p.push('.pt{{font-size:10px;color:#444}}');
+
+        /* Section */
+        p.push('.se{{border-bottom:2px solid #000;padding:10px 12px}}');
+        p.push('.stl{{font-size:8px;text-transform:uppercase;color:#555;letter-spacing:1px;font-weight:bold;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:8px}}');
+        p.push('.fg{{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px 12px;margin-bottom:4px}}');
+        p.push('.fgf{{grid-template-columns:1fr}}');
+        p.push('.fl{{font-size:8px;text-transform:uppercase;color:#888}}');
+        p.push('.fv{{font-size:11px;font-weight:500}}');
+
+        /* Total */
+        p.push('.vt{{border-bottom:2px solid #000;padding:16px 12px;text-align:center;background:#f9fafb}}');
+        p.push('.vt .vl{{font-size:9px;text-transform:uppercase;color:#777;letter-spacing:1px}}');
+        p.push('.vt .vv{{font-size:28px;font-weight:bold;margin-top:4px}}');
+
+        /* Date row */
+        p.push('.dt{{border-bottom:2px solid #000;padding:8px 12px;font-size:10px}}');
+
+        /* Footer */
+        p.push('.ft{{padding:10px 12px;text-align:center;font-size:9px;color:#999}}');
+
+        /* Action bar */
+        p.push('.act{{position:fixed;bottom:0;left:0;right:0;background:#1e293b;padding:12px;display:flex;justify-content:center;gap:12px;box-shadow:0 -4px 20px rgba(0,0,0,.3)}}');
+        p.push('.act button{{border:none;padding:10px 36px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff}}');
         p.push('.act button:hover{{background:#6366f1}}');
-        p.push('.ft{{text-align:center;margin-top:15px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:10px}}');
-        p.push('@media print{{.act{{display:none!important}}body{{padding-bottom:0!important}}}}');
         p.push('</style></head><body>');
 
-        /* Header */
-        p.push('<div class="hdr"><h1>DANFE</h1>');
-        p.push('<div class="sub">Documento Auxiliar da Nota Fiscal Eletr\u00f4nica</div>');
-        if (d.num || d.serie || d.dtEmi) {{
-            p.push('<div style="margin-top:8px;font-size:14px">');
-            if (d.num)   p.push('<strong>NF-e N.\u00ba ' + d.num + '</strong>');
-            if (d.serie) p.push(' \u2014 S\u00e9rie ' + d.serie);
-            if (d.dtEmi) p.push(' \u2014 ' + d.dtEmi);
-            p.push('</div>');
+        p.push('<div class="pg">');
+
+        /* ── DANFE Header: Emitter | DANFE identification ── */
+        p.push('<div class="dh">');
+        p.push('<div class="dhe">');
+        p.push('<div class="en">' + (d.eNome || '-') + '</div>');
+        p.push('<div class="ed">');
+        if (d.eCnpj) p.push('CNPJ: ' + d.eCnpj + '<br>');
+        if (d.eIe) p.push('IE: ' + d.eIe + '<br>');
+        if (d.eEnd) p.push(d.eEnd);
+        p.push('</div></div>');
+        p.push('<div class="dhd">');
+        p.push('<div class="dl">DANFE</div>');
+        p.push('<div class="ds">Documento Auxiliar da<br>Nota Fiscal Eletr\u00f4nica</div>');
+        if (d.num) p.push('<div class="dn">N\u00ba ' + d.num + '</div>');
+        if (d.serie) p.push('<div class="dsr">S\u00e9rie ' + d.serie + '</div>');
+        p.push('</div></div>');
+
+        /* ── Barcode + Access Key ── */
+        p.push('<div class="bc">');
+        p.push('<img src="' + bc + '" alt="C\u00f3digo de Barras"><br>');
+        p.push('<div class="bl">Chave de Acesso</div>');
+        p.push('<div class="bk">' + cf + '</div>');
+        p.push('</div>');
+
+        /* ── Status + Protocol ── */
+        p.push('<div class="sr">');
+        if (d.sit) p.push('<span class="sb ' + stCls + '">' + d.sit + '</span>');
+        if (d.prot) p.push('<span class="pt"><strong>Protocolo de Autoriza\u00e7\u00e3o:</strong> ' + d.prot + '</span>');
+        p.push('</div>');
+
+        /* ── Emission Date ── */
+        if (d.dtEmi) {{
+            p.push('<div class="dt"><strong>Data de Emiss\u00e3o:</strong> ' + d.dtEmi + '</div>');
         }}
-        p.push('</div>');
 
-        /* Chave de Acesso */
-        p.push('<div class="kb"><div class="l">Chave de Acesso</div><div class="k">' + cf + '</div></div>');
-
-        /* Situacao */
-        if (d.sit) p.push('<div class="sit" style="' + sc + '">' + d.sit + '</div>');
-
-        /* Protocolo */
-        if (d.prot) p.push('<div class="prt"><strong>Protocolo de Autoriza\u00e7\u00e3o:</strong> ' + d.prot + '</div>');
-
-        /* Emitente */
-        p.push('<div class="sec"><div class="st">Emitente</div>');
-        p.push('<div class="fr">');
-        p.push('<div class="fd" style="flex:2"><div class="l">Raz\u00e3o Social</div><div class="v">' + (d.eNome || '-') + '</div></div>');
-        p.push('<div class="fd"><div class="l">CNPJ/CPF</div><div class="v">' + (d.eCnpj || '-') + '</div></div>');
-        p.push('<div class="fd"><div class="l">IE</div><div class="v">' + (d.eIe || '-') + '</div></div>');
-        p.push('</div>');
-        if (d.eEnd) {{
-            p.push('<div class="fr"><div class="fd" style="flex:3"><div class="l">Endere\u00e7o</div><div class="v">' + d.eEnd + '</div></div></div>');
-        }}
-        p.push('</div>');
-
-        /* Destinatario */
-        p.push('<div class="sec"><div class="st">Destinat\u00e1rio</div>');
-        p.push('<div class="fr">');
-        p.push('<div class="fd" style="flex:2"><div class="l">Raz\u00e3o Social</div><div class="v">' + (d.dNome || '-') + '</div></div>');
-        p.push('<div class="fd"><div class="l">CNPJ/CPF</div><div class="v">' + (d.dCnpj || '-') + '</div></div>');
-        p.push('<div class="fd"><div class="l">IE</div><div class="v">' + (d.dIe || '-') + '</div></div>');
+        /* ── Destinatario ── */
+        p.push('<div class="se">');
+        p.push('<div class="stl">Destinat\u00e1rio / Remetente</div>');
+        p.push('<div class="fg">');
+        p.push('<div><div class="fl">Raz\u00e3o Social / Nome</div><div class="fv">' + (d.dNome || '-') + '</div></div>');
+        p.push('<div><div class="fl">CNPJ/CPF</div><div class="fv">' + (d.dCnpj || '-') + '</div></div>');
+        p.push('<div><div class="fl">IE</div><div class="fv">' + (d.dIe || '-') + '</div></div>');
         p.push('</div>');
         if (d.dEnd) {{
-            p.push('<div class="fr"><div class="fd" style="flex:3"><div class="l">Endere\u00e7o</div><div class="v">' + d.dEnd + '</div></div></div>');
+            p.push('<div class="fg fgf"><div><div class="fl">Endere\u00e7o</div><div class="fv">' + d.dEnd + '</div></div></div>');
         }}
         p.push('</div>');
 
-        /* Valor Total */
+        /* ── Valor Total ── */
         if (d.vTotal) {{
-            p.push('<div class="tb"><div class="l">Valor Total da NF-e</div><div class="v">R$ ' + d.vTotal + '</div></div>');
+            p.push('<div class="vt"><div class="vl">Valor Total da NF-e</div><div class="vv">R$ ' + d.vTotal + '</div></div>');
         }}
 
-        /* Footer + Actions */
+        /* ── Footer ── */
         p.push('<div class="ft">Gerado por Util Hub \u2014 Documento auxiliar para visualiza\u00e7\u00e3o. N\u00e3o possui valor fiscal.</div>');
-        p.push('<div class="act"><button onclick="window.print()">Imprimir</button></div>');
+        p.push('</div>');
+
+        /* ── Action bar ── */
+        p.push('<div class="act"><button onclick="window.print()">Imprimir DANFE</button></div>');
         p.push('</body></html>');
 
         document.open();
