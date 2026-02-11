@@ -8,6 +8,8 @@ import {
   Star,
   FileSearch,
   FileStack,
+  ListTodo,
+  Timer as TimerIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -15,6 +17,8 @@ import { cn } from "../lib/cn";
 type View =
   | "dashboard"
   | "tools"
+  | "tasks"
+  | "timer"
   | "links"
   | "certificates"
   | "status"
@@ -68,11 +72,18 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   const cards: DashboardCard[] = [
     {
-      id: "tools",
-      title: "Ferramentas",
-      description: "Tarefas e Timer",
-      icon: Wrench,
-      view: "tools",
+      id: "tasks",
+      title: "Tarefas",
+      description: "Gerenciar tarefas",
+      icon: ListTodo,
+      view: "tasks",
+    },
+    {
+      id: "timer",
+      title: "Timer",
+      description: "Cronômetro e contagem regressiva",
+      icon: TimerIcon,
+      view: "timer",
     },
     {
       id: "links",

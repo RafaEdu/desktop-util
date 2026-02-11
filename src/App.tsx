@@ -4,16 +4,19 @@ import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { showWindowAboveTray } from "./lib/window";
 import { Dashboard } from "./components/Dashboard";
-import { ToolsSection } from "./components/ToolsSection";
 import { QuickLinks } from "./components/QuickLinks";
 import { Certificates } from "./components/Certificates";
 import { ServiceStatus } from "./components/ServiceStatus";
 import { NfeQuery } from "./components/NfeQuery";
 import { PdfTools } from "./components/PdfTools";
+import { Tasks } from "./components/Tasks";
+import { Timer } from "./components/Timer";
 
 type View =
   | "dashboard"
   | "tools"
+  | "tasks"
+  | "timer"
   | "links"
   | "certificates"
   | "status"
@@ -23,6 +26,8 @@ type View =
 const VIEW_TITLES: Record<View, string> = {
   dashboard: "Hub",
   tools: "Ferramentas",
+  tasks: "Tarefas",
+  timer: "Timer",
   links: "Links Rápidos",
   certificates: "Certificados",
   status: "Status de Serviços",
@@ -154,7 +159,8 @@ function App() {
 
       {/* Content */}
       {activeView === "dashboard" && <Dashboard onNavigate={setActiveView} />}
-      {activeView === "tools" && <ToolsSection />}
+      {activeView === "tasks" && <Tasks />}
+      {activeView === "timer" && <Timer />}
       {activeView === "links" && <QuickLinks />}
       {activeView === "certificates" && <Certificates />}
       {activeView === "status" && <ServiceStatus />}
