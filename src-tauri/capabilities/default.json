@@ -39,6 +39,10 @@
     "core:window:allow-current-monitor",
     "core:window:allow-outer-size",
 
-    "core:tray:default"
+    "core:tray:default",
+
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
   ]
 }

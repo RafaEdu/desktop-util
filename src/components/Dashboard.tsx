@@ -7,11 +7,19 @@ import {
   Scissors,
   Star,
   FileSearch,
+  FileStack,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
 
-type View = "dashboard" | "tools" | "links" | "certificates" | "status" | "nfe";
+type View =
+  | "dashboard"
+  | "tools"
+  | "links"
+  | "certificates"
+  | "status"
+  | "nfe"
+  | "pdf";
 
 interface DashboardCard {
   id: string;
@@ -101,6 +109,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       icon: Scissors,
       action: handleScreenCapture,
     },
+    {
+      id: "pdf",
+      title: "PDF Tools",
+      description: "Unir e dividir PDFs",
+      icon: FileStack,
+      view: "pdf",
+    },
   ];
 
   const sorted = [...cards].sort((a, b) => {
@@ -149,14 +164,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                     : "text-gray-700 opacity-0 group-hover:opacity-100 hover:text-amber-400",
                 )}
                 title={
-                  isFav
-                    ? "Remover dos favoritos"
-                    : "Adicionar aos favoritos"
+                  isFav ? "Remover dos favoritos" : "Adicionar aos favoritos"
                 }
               >
-                <Star
-                  className={cn("w-3.5 h-3.5", isFav && "fill-current")}
-                />
+                <Star className={cn("w-3.5 h-3.5", isFav && "fill-current")} />
               </span>
 
               <Icon className="w-8 h-8 text-indigo-400" />

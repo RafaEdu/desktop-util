@@ -1,4 +1,5 @@
 mod nfe;
+mod pdf_utils;
 
 use std::sync::Mutex;
 use tauri::{
@@ -252,9 +253,12 @@ pub fn run() {
             nfe::open_danfe,
             nfe::download_danfe,
             nfe::query_nfe_portal,
+            pdf_utils::merge_pdfs,
+            pdf_utils::split_pdf,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(
             tauri_plugin_sql::Builder::default()

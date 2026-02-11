@@ -9,8 +9,16 @@ import { QuickLinks } from "./components/QuickLinks";
 import { Certificates } from "./components/Certificates";
 import { ServiceStatus } from "./components/ServiceStatus";
 import { NfeQuery } from "./components/NfeQuery";
+import { PdfTools } from "./components/PdfTools";
 
-type View = "dashboard" | "tools" | "links" | "certificates" | "status" | "nfe";
+type View =
+  | "dashboard"
+  | "tools"
+  | "links"
+  | "certificates"
+  | "status"
+  | "nfe"
+  | "pdf";
 
 const VIEW_TITLES: Record<View, string> = {
   dashboard: "Hub",
@@ -19,6 +27,7 @@ const VIEW_TITLES: Record<View, string> = {
   certificates: "Certificados",
   status: "Status de Serviços",
   nfe: "Consulta NFe",
+  pdf: "PDF Tools",
 };
 
 function App() {
@@ -150,6 +159,7 @@ function App() {
       {activeView === "certificates" && <Certificates />}
       {activeView === "status" && <ServiceStatus />}
       {activeView === "nfe" && <NfeQuery />}
+      {activeView === "pdf" && <PdfTools />}
 
       {/* Footer */}
       <footer className="px-4 py-2 bg-gray-900 border-t border-gray-800">
