@@ -190,7 +190,7 @@ pub async fn query_nfe_portal(
         let _: Result<(), _> = existing.close();
     }
 
-    let url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&tipoConteudo=XbSeqxE8pl8=";
+    let url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=";
 
     let init_script = build_portal_init_script(&access_key);
 
@@ -200,7 +200,7 @@ pub async fn query_nfe_portal(
         tauri::WebviewUrl::External(url.parse().unwrap()),
     )
     .title("Consulta NFe - SEFAZ")
-    .inner_size(620.0, 740.0)
+    .inner_size(850.0, 780.0)
     .center()
     .initialization_script(&init_script)
     .build()
@@ -214,86 +214,256 @@ fn build_portal_init_script(access_key: &str) -> String {
         r#"(function() {{
     'use strict';
 
+    var KEY = '{access_key}';
     var FILLED = false;
-    var ACTION_BAR_ADDED = false;
+    var SUBMITTED = false;
+    var RENDERED = false;
 
-    function prefillKey() {{
+    function gt(el) {{
+        return el ? (el.innerText || el.textContent || el.value || '').trim() : '';
+    }}
+
+    function isFormPage() {{
+        return !!document.querySelector('input[name*="txtChaveAcesso"]');
+    }}
+
+    /* ══════ FORM PAGE: auto-fill + captcha detect + auto-submit ══════ */
+
+    function fillKey() {{
         if (FILLED) return;
-        var key = '{access_key}';
-        var inputs = document.querySelectorAll('input[type="text"]');
-        for (var i = 0; i < inputs.length; i++) {{
-            var el = inputs[i];
-            var id = (el.id || '').toLowerCase();
-            var name = (el.name || '').toLowerCase();
-            if (id.indexOf('chave') !== -1 || name.indexOf('chave') !== -1) {{
-                el.value = key;
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                FILLED = true;
-                return;
+        var el = document.getElementById('ctl00_ContentPlaceHolder1_txtChaveAcessoResumo');
+        if (!el) {{
+            var list = document.querySelectorAll('input[name*="txtChaveAcesso"], input.txtChaveAcesso');
+            if (list.length) el = list[0];
+        }}
+        if (el) {{
+            el.value = KEY;
+            el.dispatchEvent(new Event('input',  {{bubbles:true}}));
+            el.dispatchEvent(new Event('change', {{bubbles:true}}));
+            el.dispatchEvent(new Event('blur',   {{bubbles:true}}));
+            FILLED = true;
+        }}
+    }}
+
+    function captchaDone() {{
+        var r = document.querySelector(
+            'textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]'
+        );
+        return !!(r && r.value && r.value.trim().length > 10);
+    }}
+
+    function clickContinuar() {{
+        if (SUBMITTED) return;
+        SUBMITTED = true;
+        setTimeout(function() {{
+            var b = document.getElementById('ctl00_ContentPlaceHolder1_btnConsultarHCaptcha');
+            if (!b) b = document.querySelector('input[value="Continuar"]');
+            if (b) b.click();
+        }}, 400);
+    }}
+
+    function setupForm() {{
+        fillKey();
+        setTimeout(fillKey, 500);
+        setTimeout(fillKey, 1500);
+        setTimeout(fillKey, 3000);
+        var iv = setInterval(function() {{
+            if (captchaDone()) {{ clickContinuar(); clearInterval(iv); }}
+        }}, 500);
+    }}
+
+    /* ══════ RESULT PAGE: scrape NFe data + render DANFE ══════ */
+
+    function scrape() {{
+        var d = {{
+            chave:KEY, sit:'', num:'', serie:'', dtEmi:'',
+            eNome:'', eCnpj:'', eIe:'', eEnd:'',
+            dNome:'', dCnpj:'', dIe:'', dEnd:'',
+            vTotal:'', prot:''
+        }};
+
+        /* 1) Scan ASP.NET spans/labels by id */
+        var spans = document.querySelectorAll(
+            'span[id*="ContentPlaceHolder"], label[id*="ContentPlaceHolder"]'
+        );
+        for (var i = 0; i < spans.length; i++) {{
+            var id = (spans[i].id || '').toLowerCase();
+            var t = gt(spans[i]);
+            if (!t) continue;
+            if (id.includes('chave'))    d.chave = t.replace(/\s/g, '') || d.chave;
+            if (id.includes('situacao')) d.sit = t;
+            if (id.includes('protocolo') || id.includes('nprot')) d.prot = d.prot || t;
+        }}
+
+        /* 2) Scan table rows for label-value pairs */
+        var rows = document.querySelectorAll('tr');
+        for (var j = 0; j < rows.length; j++) {{
+            var cc = rows[j].querySelectorAll('td');
+            for (var k = 0; k < cc.length - 1; k++) {{
+                var lb = gt(cc[k]).toLowerCase();
+                var vl = gt(cc[k + 1]);
+                if (!lb || !vl) continue;
+
+                var fs = cc[k].closest ? cc[k].closest('fieldset') : null;
+                var lg = fs ? gt(fs.querySelector('legend')).toLowerCase() : '';
+                var isD = lg.includes('destinat') || lg.includes('tomador');
+
+                if (lb.includes('raz') || lb.includes('nome')) {{
+                    if (isD) d.dNome = d.dNome || vl;
+                    else d.eNome = d.eNome || vl;
+                }}
+                if (lb.includes('cnpj') || (lb.includes('cpf') && !lb.includes('ie'))) {{
+                    if (isD) d.dCnpj = d.dCnpj || vl;
+                    else d.eCnpj = d.eCnpj || vl;
+                }}
+                if (lb.includes('inscri') && lb.includes('estadual')) {{
+                    if (isD) d.dIe = d.dIe || vl;
+                    else d.eIe = d.eIe || vl;
+                }}
+                if (lb.includes('endere')) {{
+                    if (isD) d.dEnd = d.dEnd || vl;
+                    else d.eEnd = d.eEnd || vl;
+                }}
+                if (lb.includes('valor total') || lb.includes('valor da n')) {{
+                    d.vTotal = d.vTotal || vl;
+                }}
+                if (lb.includes('protocolo')) d.prot = d.prot || vl;
+                if ((lb.includes('n\u00famero') || lb.includes('numero')) && !lb.includes('prot') && !lb.includes('recib')) {{
+                    d.num = d.num || vl;
+                }}
+                if (lb.includes('s\u00e9rie') || lb === 'serie') d.serie = d.serie || vl;
+                if (lb.includes('data') && lb.includes('emiss')) d.dtEmi = d.dtEmi || vl;
             }}
         }}
+
+        return d;
     }}
 
-    function hasNfeResults() {{
-        // Look for NFe-specific content that only appears after captcha
-        var body = document.body ? document.body.innerText : '';
-        if (body.indexOf('Chave de Acesso') !== -1 && body.indexOf('Emitente') !== -1) return true;
-        if (body.indexOf('DANFE') !== -1) return true;
-        if (document.querySelector('[id*="Emitente"]')) return true;
-        if (document.querySelector('[id*="Destinatario"]')) return true;
-        // Look for fieldsets about NFe data (these only appear in results)
-        var legends = document.querySelectorAll('legend, fieldset');
-        for (var i = 0; i < legends.length; i++) {{
-            var t = legends[i].innerText || '';
-            if (t.indexOf('Emitente') !== -1 || t.indexOf('Produto') !== -1 || t.indexOf('Total') !== -1) return true;
+    function danfe() {{
+        if (RENDERED) return;
+        RENDERED = true;
+
+        var d = scrape();
+        var cf = d.chave.replace(/(\d{{4}})/g, '$1 ').trim();
+
+        var sc = '';
+        var sl = (d.sit || '').toLowerCase();
+        if (sl.includes('autoriz')) sc = 'background:#f0fdf4;color:#166534';
+        else if (sl.includes('cancel') || sl.includes('denega')) sc = 'background:#fef2f2;color:#991b1b';
+
+        var p = [];
+        p.push('<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">');
+        p.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
+        p.push('<title>DANFE - NF-e ' + (d.num || '') + '</title><style>');
+        p.push('*{{margin:0;padding:0;box-sizing:border-box}}');
+        p.push('body{{font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:0 auto;padding:20px 20px 80px;color:#1a1a1a;background:#fff}}');
+        p.push('.hdr{{text-align:center;border:2px solid #000;padding:15px;margin-bottom:2px}}');
+        p.push('.hdr h1{{font-size:22px;margin-bottom:4px}}.hdr .sub{{font-size:12px;color:#555}}');
+        p.push('.kb{{border:2px solid #000;padding:10px;text-align:center;margin-bottom:2px}}');
+        p.push('.kb .l{{font-size:10px;color:#555;text-transform:uppercase}}');
+        p.push('.kb .k{{font-family:"Courier New",monospace;font-size:15px;letter-spacing:1px;margin-top:4px}}');
+        p.push('.sit{{text-align:center;padding:8px;margin-bottom:2px;border:2px solid #000;font-weight:bold}}');
+        p.push('.prt{{border:2px solid #000;padding:8px;margin-bottom:2px;text-align:center;font-size:11px}}');
+        p.push('.sec{{border:2px solid #000;padding:10px;margin-bottom:2px}}');
+        p.push('.st{{font-size:11px;text-transform:uppercase;color:#555;border-bottom:1px solid #ccc;padding-bottom:3px;margin-bottom:8px;font-weight:bold}}');
+        p.push('.fr{{display:flex;gap:15px;margin-bottom:6px;flex-wrap:wrap}}');
+        p.push('.fd{{flex:1;min-width:120px}}');
+        p.push('.fd .l{{font-size:9px;text-transform:uppercase;color:#777}}');
+        p.push('.fd .v{{font-size:12px;font-weight:500}}');
+        p.push('.tb{{border:2px solid #000;padding:12px;margin-bottom:2px;text-align:center}}');
+        p.push('.tb .l{{font-size:10px;color:#555;text-transform:uppercase}}');
+        p.push('.tb .v{{font-size:24px;font-weight:bold;margin-top:4px}}');
+        p.push('.act{{position:fixed;bottom:0;left:0;right:0;padding:12px 20px;background:#1e293b;border-top:1px solid #334155;display:flex;gap:10px;justify-content:center;z-index:99999;box-shadow:0 -4px 16px rgba(0,0,0,.4)}}');
+        p.push('.act button{{border:none;border-radius:8px;padding:10px 28px;cursor:pointer;font-weight:600;font-size:14px;min-width:140px;background:#4f46e5;color:#fff}}');
+        p.push('.act button:hover{{background:#6366f1}}');
+        p.push('.ft{{text-align:center;margin-top:15px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:10px}}');
+        p.push('@media print{{.act{{display:none!important}}body{{padding-bottom:0!important}}}}');
+        p.push('</style></head><body>');
+
+        /* Header */
+        p.push('<div class="hdr"><h1>DANFE</h1>');
+        p.push('<div class="sub">Documento Auxiliar da Nota Fiscal Eletr\u00f4nica</div>');
+        if (d.num || d.serie || d.dtEmi) {{
+            p.push('<div style="margin-top:8px;font-size:14px">');
+            if (d.num)   p.push('<strong>NF-e N.\u00ba ' + d.num + '</strong>');
+            if (d.serie) p.push(' \u2014 S\u00e9rie ' + d.serie);
+            if (d.dtEmi) p.push(' \u2014 ' + d.dtEmi);
+            p.push('</div>');
         }}
-        return false;
+        p.push('</div>');
+
+        /* Chave de Acesso */
+        p.push('<div class="kb"><div class="l">Chave de Acesso</div><div class="k">' + cf + '</div></div>');
+
+        /* Situacao */
+        if (d.sit) p.push('<div class="sit" style="' + sc + '">' + d.sit + '</div>');
+
+        /* Protocolo */
+        if (d.prot) p.push('<div class="prt"><strong>Protocolo de Autoriza\u00e7\u00e3o:</strong> ' + d.prot + '</div>');
+
+        /* Emitente */
+        p.push('<div class="sec"><div class="st">Emitente</div>');
+        p.push('<div class="fr">');
+        p.push('<div class="fd" style="flex:2"><div class="l">Raz\u00e3o Social</div><div class="v">' + (d.eNome || '-') + '</div></div>');
+        p.push('<div class="fd"><div class="l">CNPJ/CPF</div><div class="v">' + (d.eCnpj || '-') + '</div></div>');
+        p.push('<div class="fd"><div class="l">IE</div><div class="v">' + (d.eIe || '-') + '</div></div>');
+        p.push('</div>');
+        if (d.eEnd) {{
+            p.push('<div class="fr"><div class="fd" style="flex:3"><div class="l">Endere\u00e7o</div><div class="v">' + d.eEnd + '</div></div></div>');
+        }}
+        p.push('</div>');
+
+        /* Destinatario */
+        p.push('<div class="sec"><div class="st">Destinat\u00e1rio</div>');
+        p.push('<div class="fr">');
+        p.push('<div class="fd" style="flex:2"><div class="l">Raz\u00e3o Social</div><div class="v">' + (d.dNome || '-') + '</div></div>');
+        p.push('<div class="fd"><div class="l">CNPJ/CPF</div><div class="v">' + (d.dCnpj || '-') + '</div></div>');
+        p.push('<div class="fd"><div class="l">IE</div><div class="v">' + (d.dIe || '-') + '</div></div>');
+        p.push('</div>');
+        if (d.dEnd) {{
+            p.push('<div class="fr"><div class="fd" style="flex:3"><div class="l">Endere\u00e7o</div><div class="v">' + d.dEnd + '</div></div></div>');
+        }}
+        p.push('</div>');
+
+        /* Valor Total */
+        if (d.vTotal) {{
+            p.push('<div class="tb"><div class="l">Valor Total da NF-e</div><div class="v">R$ ' + d.vTotal + '</div></div>');
+        }}
+
+        /* Footer + Actions */
+        p.push('<div class="ft">Gerado por Util Hub \u2014 Documento auxiliar para visualiza\u00e7\u00e3o. N\u00e3o possui valor fiscal.</div>');
+        p.push('<div class="act"><button onclick="window.print()">Imprimir</button></div>');
+        p.push('</body></html>');
+
+        document.open();
+        document.write(p.join(''));
+        document.close();
     }}
 
-    function addActionBar() {{
-        if (ACTION_BAR_ADDED) return;
-        if (!hasNfeResults()) return;
-        ACTION_BAR_ADDED = true;
-
-        var bar = document.createElement('div');
-        bar.id = 'uh-actions';
-        bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;padding:12px 20px;background:#1e293b;border-top:1px solid #334155;display:flex;gap:10px;justify-content:center;z-index:99999;box-shadow:0 -4px 16px rgba(0,0,0,0.4);';
-
-        var printBtn = document.createElement('button');
-        printBtn.textContent = 'Imprimir';
-        printBtn.style.cssText = 'background:#4f46e5;color:white;border:none;border-radius:8px;padding:10px 28px;cursor:pointer;font-weight:600;font-size:14px;min-width:140px;';
-        printBtn.onmouseenter = function() {{ this.style.background='#6366f1'; }};
-        printBtn.onmouseleave = function() {{ this.style.background='#4f46e5'; }};
-        printBtn.onclick = function() {{ window.print(); }};
-
-        bar.appendChild(printBtn);
-        document.body.appendChild(bar);
-        document.body.style.paddingBottom = '60px';
+    function setupResult() {{
+        function attempt() {{
+            var body = document.body ? document.body.innerText : '';
+            var hasResult = body.indexOf('Emitente') !== -1
+                || document.querySelector('input[id*="btnDownload"]')
+                || document.querySelector('input[id*="btnVoltar"]');
+            if (hasResult) {{
+                setTimeout(danfe, 500);
+            }} else {{
+                setTimeout(attempt, 500);
+            }}
+        }}
+        attempt();
     }}
+
+    /* ══════ INIT ══════ */
 
     function init() {{
-        // Prefill access key with retries (ASP.NET may render late)
-        prefillKey();
-        setTimeout(prefillKey, 500);
-        setTimeout(prefillKey, 1500);
-        setTimeout(prefillKey, 3000);
-
-        // Watch for NFe results after captcha is solved
-        if (document.body) {{
-            var observer = new MutationObserver(function() {{
-                addActionBar();
-            }});
-            observer.observe(document.body, {{ childList: true, subtree: true }});
-            addActionBar();
-        }}
+        if (isFormPage()) setupForm();
+        else setupResult();
     }}
 
-    if (document.readyState === 'loading') {{
-        document.addEventListener('DOMContentLoaded', init);
-    }} else {{
-        init();
-    }}
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
 }})();"#,
         access_key = access_key,
     )
