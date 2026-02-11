@@ -6,7 +6,6 @@ import {
   ShieldCheck,
   RefreshCw,
   ChevronDown,
-  Check,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 

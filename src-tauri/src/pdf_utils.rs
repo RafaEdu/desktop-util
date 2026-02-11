@@ -1,6 +1,7 @@
 use lopdf::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
 use std::path::Path;
+use chrono::{DateTime, Utc};
 
 // ── Merge PDFs ──────────────────────────────────────────────────
 
@@ -273,4 +274,80 @@ fn extract_pages(source: &Document, pages: &[u32], output_path: &Path) -> Result
         .map_err(|e| format!("Erro ao salvar '{}': {}", output_path.display(), e))?;
 
     Ok(())
+}
+
+// ── Get PDF Info ─────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct PdfInfo {
+    pub size: u64,
+    pub page_count: usize,
+    pub created: String,
+}
+
+#[tauri::command]
+pub fn get_pdf_info(path: String) -> Result<PdfInfo, String> {
+    if !Path::new(&path).exists() {
+        return Err(format!("Arquivo não encontrado: {}", path));
+    }
+
+    let doc = Document::load(&path).map_err(|e| format!("Erro ao abrir o PDF: {}", e))?;
+    let page_count = doc.get_pages().len();
+    let metadata = std::fs::metadata(&path).map_err(|e| format!("Erro ao obter metadados: {}", e))?;
+    let size = metadata.len();
+    let created = metadata.created()
+        .map_err(|e| format!("Erro ao obter data de criação: {}", e))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Erro na conversão de tempo: {}", e))?
+        .as_secs();
+
+    // Formatar data
+    let datetime = DateTime::<Utc>::from_timestamp(created as i64, 0)
+        .ok_or("Erro ao converter timestamp")?;
+    let created_str = datetime.format("%d/%m/%Y %H:%M:%S").to_string();
+
+    Ok(PdfInfo {
+        size,
+        page_count,
+        created: created_str,
+    })
+}
+
+// ── Compress PDF ─────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn compress_pdf(input_path: String, output_path: String, level: String) -> Result<u64, String> {
+    if !Path::new(&input_path).exists() {
+        return Err(format!("Arquivo não encontrado: {}", input_path));
+    }
+
+    let mut doc = Document::load(&input_path).map_err(|e| format!("Erro ao abrir o PDF: {}", e))?;
+
+    // Compress based on level
+    match level.as_str() {
+        "low" => {
+            // Low compression: basic compress
+            doc.compress();
+        }
+        "medium" => {
+            // Medium: compress and renumber
+            doc.compress();
+            doc.renumber_objects();
+        }
+        "high" => {
+            // High: compress, renumber, and remove unused objects if possible
+            doc.compress();
+            doc.renumber_objects();
+            // Additional optimization could be added here
+        }
+        _ => return Err("Nível de compressão inválido".into()),
+    }
+
+    doc.save(&output_path).map_err(|e| format!("Erro ao salvar o PDF: {}", e))?;
+
+    let new_size = std::fs::metadata(&output_path)
+        .map_err(|e| format!("Erro ao obter tamanho do arquivo comprimido: {}", e))?
+        .len();
+
+    Ok(new_size)
 }

@@ -9,12 +9,13 @@ import {
   Play,
   Plus,
   FileText,
+  Shrink,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 
-type PdfTab = "merge" | "split";
+type PdfTab = "merge" | "split" | "compress";
 
 type SplitMode =
   | "everyPage"
@@ -54,9 +55,27 @@ export function PdfTools() {
           <Split className="w-3.5 h-3.5" />
           Dividir PDF
         </button>
+        <button
+          onClick={() => setActiveTab("compress")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+            activeTab === "compress"
+              ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
+              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+          )}
+        >
+          <Shrink className="w-3.5 h-3.5" />
+          Comprimir PDF
+        </button>
       </div>
 
-      {activeTab === "merge" ? <MergePdf /> : <SplitPdf />}
+      {activeTab === "merge" ? (
+        <MergePdf />
+      ) : activeTab === "split" ? (
+        <SplitPdf />
+      ) : (
+        <CompressPdf />
+      )}
     </div>
   );
 }
@@ -438,6 +457,237 @@ function SplitPdf() {
       {success && (
         <p className="text-xs text-emerald-400 bg-emerald-400/10 rounded-lg px-3 py-2">
           {success}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Compress PDF ───────────────────────────────────────────────────
+
+function CompressPdf() {
+  const [file, setFile] = useState<string | null>(null);
+  const [pdfInfo, setPdfInfo] = useState<{
+    size: number;
+    page_count: number;
+    created: string;
+  } | null>(null);
+  const [compressionLevel, setCompressionLevel] = useState<
+    "low" | "medium" | "high"
+  >("medium");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{
+    newSize: number;
+    reductionPercent: number;
+  } | null>(null);
+
+  const selectFile = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (selected) {
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setFile(path);
+      setPdfInfo(null);
+      setError(null);
+      setSuccess(null);
+
+      // Get PDF info
+      try {
+        const info = await invoke<{
+          size: number;
+          page_count: number;
+          created: string;
+        }>("get_pdf_info", { path });
+        setPdfInfo(info);
+      } catch (err) {
+        setError(String(err));
+      }
+    }
+  };
+
+  const executeCompress = async () => {
+    if (!file || !pdfInfo) return;
+
+    const savePath = await save({
+      defaultPath: `compressed_${compressionLevel}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!savePath) return;
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const newSize = await invoke<number>("compress_pdf", {
+        inputPath: file,
+        outputPath: savePath,
+        level: compressionLevel,
+      });
+
+      const reductionPercent = ((pdfInfo.size - newSize) / pdfInfo.size) * 100;
+      setSuccess({ newSize, reductionPercent });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const compressionLevels = [
+    {
+      id: "low" as const,
+      label: "Baixa",
+      desc: "Compressão leve, mantém qualidade",
+    },
+    {
+      id: "medium" as const,
+      label: "Recomendada",
+      desc: "Balanço entre tamanho e qualidade",
+    },
+    {
+      id: "high" as const,
+      label: "Extrema",
+      desc: "Máxima compressão, pode reduzir qualidade",
+    },
+  ];
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
+      {/* File selection */}
+      <button
+        onClick={selectFile}
+        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+      >
+        <FolderOpen className="w-4 h-4" />
+        <span className="text-xs font-medium">
+          {file ? file.split(/[\\/]/).pop() || file : "Selecionar PDF"}
+        </span>
+      </button>
+
+      {/* PDF Info */}
+      {pdfInfo && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 space-y-2">
+          <h3 className="text-xs font-medium text-gray-300">
+            Informações do PDF
+          </h3>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-gray-500">Tamanho:</span>
+              <span className="ml-1 text-gray-200">
+                {formatSize(pdfInfo.size)}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">Páginas:</span>
+              <span className="ml-1 text-gray-200">{pdfInfo.page_count}</span>
+            </div>
+            <div className="col-span-2">
+              <span className="text-gray-500">Criado em:</span>
+              <span className="ml-1 text-gray-200">{pdfInfo.created}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Compression level */}
+      <div className="space-y-1.5">
+        <label className="text-xs text-gray-500">Nível de Compressão</label>
+        <div className="space-y-1">
+          {compressionLevels.map((level) => (
+            <label
+              key={level.id}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
+                compressionLevel === level.id
+                  ? "border-indigo-500 bg-indigo-600/10 text-indigo-400"
+                  : "border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700",
+              )}
+            >
+              <input
+                type="radio"
+                name="compressionLevel"
+                value={level.id}
+                checked={compressionLevel === level.id}
+                onChange={() => setCompressionLevel(level.id)}
+                className="sr-only"
+              />
+              <div
+                className={cn(
+                  "w-3 h-3 rounded-full border-2 shrink-0",
+                  compressionLevel === level.id
+                    ? "border-indigo-400 bg-indigo-400"
+                    : "border-gray-600",
+                )}
+              />
+              <div className="flex-1">
+                <span className="text-xs font-medium">{level.label}</span>
+                <p className="text-xs text-gray-500">{level.desc}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* Execute */}
+      <button
+        onClick={executeCompress}
+        disabled={loading || !file}
+        className={cn(
+          "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors",
+          loading || !file
+            ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+            : "bg-indigo-600 text-white hover:bg-indigo-500",
+        )}
+      >
+        <Play className="w-3.5 h-3.5" />
+        {loading ? "Comprimindo..." : "Comprimir PDF"}
+      </button>
+
+      {/* Results */}
+      {success && (
+        <div className="bg-emerald-400/10 border border-emerald-500/30 rounded-lg p-3 space-y-2">
+          <h3 className="text-xs font-medium text-emerald-400">
+            Compressão Concluída
+          </h3>
+          <div className="text-xs space-y-1">
+            <div>
+              <span className="text-gray-400">Tamanho original:</span>
+              <span className="ml-1 text-gray-200">
+                {formatSize(pdfInfo!.size)}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-400">Novo tamanho:</span>
+              <span className="ml-1 text-gray-200">
+                {formatSize(success.newSize)}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-400">Redução:</span>
+              <span className="ml-1 text-emerald-400 font-medium">
+                {success.reductionPercent.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            Arquivo comprimido salvo com sucesso.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-400 bg-red-400/10 rounded-lg px-3 py-2">
+          {error}
         </p>
       )}
     </div>

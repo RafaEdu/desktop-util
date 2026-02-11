@@ -255,6 +255,8 @@ pub fn run() {
             nfe::query_nfe_portal,
             pdf_utils::merge_pdfs,
             pdf_utils::split_pdf,
+            pdf_utils::get_pdf_info,
+            pdf_utils::compress_pdf,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
