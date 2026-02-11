@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FileSearch, ExternalLink, ShieldCheck } from "lucide-react";
+import {
+  FileSearch,
+  ExternalLink,
+  ShieldCheck,
+  RefreshCw,
+  ChevronDown,
+  Check,
+} from "lucide-react";
 import { cn } from "../lib/cn";
 
 // UF map for display from access key
@@ -51,21 +58,65 @@ function parseAccessKey(key: string) {
   };
 }
 
+interface CertInfo {
+  subject: string;
+  issuer: string;
+  not_after: string;
+  thumbprint: string;
+}
+
 export function NfeQuery() {
   const [accessKeyRaw, setAccessKeyRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
+  const [method, setMethod] = useState<"portal" | "cert">("portal");
+  const [certs, setCerts] = useState<CertInfo[]>([]);
+  const [selectedCert, setSelectedCert] = useState<string>("");
+  const [loadingCerts, setLoadingCerts] = useState(false);
 
   // Sanitize: strip all non-digit characters
   const accessKey = accessKeyRaw.replace(/\D/g, "").slice(0, 44);
   const parsed = parseAccessKey(accessKey);
   const isValid = accessKey.length === 44;
 
+  const loadCerts = async () => {
+    setLoadingCerts(true);
+    try {
+      const data = await invoke<CertInfo[]>("get_certificates");
+      setCerts(data);
+      if (data.length > 0 && !selectedCert) {
+        setSelectedCert(data[0].thumbprint);
+      }
+    } catch (err) {
+      console.error("Failed to load certs", err);
+    } finally {
+      setLoadingCerts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (method === "cert" && certs.length === 0) {
+      loadCerts();
+    }
+  }, [method]);
+
   const handleQuery = async () => {
     setError(null);
     setOpened(false);
     try {
-      await invoke("query_nfe_portal", { accessKey });
+      if (method === "portal") {
+        await invoke("query_nfe_portal", { accessKey });
+      } else {
+        if (!selectedCert) {
+          setError("Selecione um certificado digital para continuar.");
+          return;
+        }
+        const filePath = await invoke<string>("query_nfe", {
+          thumbprint: selectedCert,
+          accessKey,
+        });
+        await invoke("open_danfe", { filePath });
+      }
       setOpened(true);
     } catch (err) {
       setError(String(err));
@@ -80,11 +131,30 @@ export function NfeQuery() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="px-4 pt-3 pb-3">
-        <p className="text-xs text-gray-500">
-          Consulta de NF-e via Portal SEFAZ
-        </p>
+      {/* Method Toggle */}
+      <div className="px-4 pt-3 pb-3 flex gap-2 border-b border-gray-800">
+        <button
+          onClick={() => setMethod("portal")}
+          className={cn(
+            "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
+            method === "portal"
+              ? "bg-indigo-600 text-white"
+              : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
+          )}
+        >
+          Portal (Captcha)
+        </button>
+        <button
+          onClick={() => setMethod("cert")}
+          className={cn(
+            "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
+            method === "cert"
+              ? "bg-indigo-600 text-white"
+              : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
+          )}
+        >
+          Via Certificado
+        </button>
       </div>
 
       {/* Content */}
@@ -112,6 +182,50 @@ export function NfeQuery() {
             </p>
           )}
         </div>
+
+        {/* Certificate Select */}
+        {method === "cert" && (
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">
+              Certificado Digital (e-CNPJ)
+            </label>
+            <div className="relative">
+              {loadingCerts ? (
+                <div className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-500 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Carregando certificados...
+                </div>
+              ) : certs.length === 0 ? (
+                <div className="w-full bg-red-900/10 border border-red-800/30 rounded-lg px-3 py-2 text-sm text-red-400 flex items-center gap-2">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Nenhum certificado encontrado
+                </div>
+              ) : (
+                <div className="relative">
+                  <select
+                    value={selectedCert}
+                    onChange={(e) => setSelectedCert(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-3 pr-8 py-2 text-sm text-gray-100 appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {certs.map((c) => (
+                      <option key={c.thumbprint} value={c.thumbprint}>
+                        {c.subject.split(",")[0]} (Val:{" "}
+                        {c.not_after !== "N/A"
+                          ? c.not_after.split("T")[0]
+                          : "N/A"}
+                        )
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+                </div>
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-gray-600">
+              O certificado é necessário para baixar o XML completo da nota.
+            </p>
+          </div>
+        )}
 
         {/* Parsed access key preview */}
         {parsed && (

@@ -6,7 +6,18 @@ pub struct NfeParty {
     pub name: String,
     pub cnpj_cpf: String,
     pub ie: String,
-    pub address: String,
+    pub address: NfeAddress,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct NfeAddress {
+    pub logradouro: String,
+    pub nro: String,
+    pub bairro: String,
+    pub municipio: String,
+    pub uf: String,
+    pub cep: String,
+    pub fone: String,
 }
 
 #[derive(serde::Serialize, Clone, Default)]
@@ -15,11 +26,18 @@ pub struct NfeProduto {
     pub code: String,
     pub description: String,
     pub ncm: String,
+    pub cst: String,
     pub cfop: String,
     pub unit: String,
     pub qty: String,
     pub unit_price: String,
     pub total: String,
+    pub bc_icms: String,
+    pub v_icms: String,
+    pub v_ipi: String,
+    pub aliq_icms: String,
+    pub aliq_ipi: String,
+    pub v_tot_trib: String,
 }
 
 #[derive(serde::Serialize, Clone, Default)]
@@ -28,13 +46,49 @@ pub struct NfeTotais {
     pub icms: String,
     pub bc_icms_st: String,
     pub icms_st: String,
+    pub total_products: String,
     pub freight: String,
     pub insurance: String,
     pub discount: String,
     pub other: String,
     pub ipi: String,
-    pub total_products: String,
+    pub pis: String,
+    pub cofins: String,
     pub total_nfe: String,
+    pub v_tot_trib: String,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct NfeTransporte {
+    pub mod_frete: String,
+    pub transportadora: NfeParty,
+    pub veiculo_placa: String,
+    pub veiculo_uf: String,
+    pub veiculo_rntrc: String,
+    pub vol_qvol: String,
+    pub vol_esp: String,
+    pub vol_marca: String,
+    pub vol_nvol: String,
+    pub vol_peso_b: String,
+    pub vol_peso_l: String,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct NfeInfoAdicional {
+    pub inf_cpl: String,
+    pub inf_fisco: String,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct NfeFatura {
+    pub duplicatas: Vec<NfeDuplicata>,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+pub struct NfeDuplicata {
+    pub n_dup: String,
+    pub d_venc: String,
+    pub v_dup: String,
 }
 
 #[derive(serde::Serialize, Clone, Default)]
@@ -43,10 +97,17 @@ pub struct NfeData {
     pub numero: String,
     pub serie: String,
     pub data_emissao: String,
+    pub data_saida_entrada: String,
+    pub hora_saida_entrada: String,
+    pub tipo_nf: String,
+    pub nat_op: String,
     pub emitente: NfeParty,
     pub destinatario: NfeParty,
     pub produtos: Vec<NfeProduto>,
     pub totais: NfeTotais,
+    pub transporte: NfeTransporte,
+    pub info_adicional: NfeInfoAdicional,
+    pub fatura: Option<NfeFatura>,
     pub protocolo: String,
 }
 
@@ -944,10 +1005,18 @@ fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
         ..Default::default()
     };
 
-    // -- ide section
-    data.numero = extract_tag_content(xml, "nNF").unwrap_or_default();
-    data.serie = extract_tag_content(xml, "serie").unwrap_or_default();
-    data.data_emissao = extract_tag_content(xml, "dhEmi").unwrap_or_default();
+    // -- ide
+    if let Some(ide) = extract_block(xml, "ide") {
+        data.numero = extract_tag_content(&ide, "nNF").unwrap_or_default();
+        data.serie = extract_tag_content(&ide, "serie").unwrap_or_default();
+        data.data_emissao = extract_tag_content(&ide, "dhEmi").unwrap_or_default();
+        data.data_saida_entrada = extract_tag_content(&ide, "dhSaiEnt")
+            .or_else(|| extract_tag_content(&ide, "dSaiEnt"))
+            .unwrap_or_default();
+        data.hora_saida_entrada = extract_tag_content(&ide, "hSaiEnt").unwrap_or_default();
+        data.nat_op = extract_tag_content(&ide, "natOp").unwrap_or_default();
+        data.tipo_nf = extract_tag_content(&ide, "tpNF").unwrap_or_default();
+    }
 
     // -- emitente
     if let Some(emit_block) = extract_block(xml, "emit") {
@@ -956,17 +1025,9 @@ fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
             .or_else(|| extract_tag_content(&emit_block, "CPF"))
             .unwrap_or_default();
         data.emitente.ie = extract_tag_content(&emit_block, "IE").unwrap_or_default();
-
-        let lgr = extract_tag_content(&emit_block, "xLgr").unwrap_or_default();
-        let nro = extract_tag_content(&emit_block, "nro").unwrap_or_default();
-        let bairro = extract_tag_content(&emit_block, "xBairro").unwrap_or_default();
-        let mun = extract_tag_content(&emit_block, "xMun").unwrap_or_default();
-        let uf = extract_tag_content(&emit_block, "UF").unwrap_or_default();
-        let cep = extract_tag_content(&emit_block, "CEP").unwrap_or_default();
-        data.emitente.address = format!(
-            "{}, {} - {} - {}/{} - CEP: {}",
-            lgr, nro, bairro, mun, uf, cep
-        );
+        if let Some(addr) = extract_block(&emit_block, "enderEmit") {
+            data.emitente.address = parse_address(&addr);
+        }
     }
 
     // -- destinatario
@@ -976,17 +1037,9 @@ fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
             .or_else(|| extract_tag_content(&dest_block, "CPF"))
             .unwrap_or_default();
         data.destinatario.ie = extract_tag_content(&dest_block, "IE").unwrap_or_default();
-
-        let lgr = extract_tag_content(&dest_block, "xLgr").unwrap_or_default();
-        let nro = extract_tag_content(&dest_block, "nro").unwrap_or_default();
-        let bairro = extract_tag_content(&dest_block, "xBairro").unwrap_or_default();
-        let mun = extract_tag_content(&dest_block, "xMun").unwrap_or_default();
-        let uf = extract_tag_content(&dest_block, "UF").unwrap_or_default();
-        let cep = extract_tag_content(&dest_block, "CEP").unwrap_or_default();
-        data.destinatario.address = format!(
-            "{}, {} - {} - {}/{} - CEP: {}",
-            lgr, nro, bairro, mun, uf, cep
-        );
+        if let Some(addr) = extract_block(&dest_block, "enderDest") {
+            data.destinatario.address = parse_address(&addr);
+        }
     }
 
     // -- produtos
@@ -994,17 +1047,23 @@ fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
 
     // -- totais (ICMSTot)
     if let Some(tot_block) = extract_block(xml, "ICMSTot") {
-        data.totais.bc_icms = extract_tag_content(&tot_block, "vBC").unwrap_or_default();
-        data.totais.icms = extract_tag_content(&tot_block, "vICMS").unwrap_or_default();
-        data.totais.bc_icms_st = extract_tag_content(&tot_block, "vBCST").unwrap_or_default();
-        data.totais.icms_st = extract_tag_content(&tot_block, "vST").unwrap_or_default();
-        data.totais.freight = extract_tag_content(&tot_block, "vFrete").unwrap_or_default();
-        data.totais.insurance = extract_tag_content(&tot_block, "vSeg").unwrap_or_default();
-        data.totais.discount = extract_tag_content(&tot_block, "vDesc").unwrap_or_default();
-        data.totais.other = extract_tag_content(&tot_block, "vOutro").unwrap_or_default();
-        data.totais.ipi = extract_tag_content(&tot_block, "vIPI").unwrap_or_default();
-        data.totais.total_products = extract_tag_content(&tot_block, "vProd").unwrap_or_default();
-        data.totais.total_nfe = extract_tag_content(&tot_block, "vNF").unwrap_or_default();
+        data.totais = parse_totals(&tot_block);
+    }
+
+    // -- transporte
+    if let Some(transp) = extract_block(xml, "transp") {
+        data.transporte = parse_transport(&transp);
+    }
+
+    // -- cobranca / fatura
+    if let Some(cobr) = extract_block(xml, "cobr") {
+        data.fatura = Some(parse_fatura(&cobr));
+    }
+
+    // -- infAdic
+    if let Some(inf) = extract_block(xml, "infAdic") {
+        data.info_adicional.inf_cpl = extract_tag_content(&inf, "infCpl").unwrap_or_default();
+        data.info_adicional.inf_fisco = extract_tag_content(&inf, "infAdFisco").unwrap_or_default();
     }
 
     // -- protocolo
@@ -1015,6 +1074,90 @@ fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
     }
 
     Ok(data)
+}
+
+fn parse_address(xml: &str) -> NfeAddress {
+    NfeAddress {
+        logradouro: extract_tag_content(xml, "xLgr").unwrap_or_default(),
+        nro: extract_tag_content(xml, "nro").unwrap_or_default(),
+        bairro: extract_tag_content(xml, "xBairro").unwrap_or_default(),
+        municipio: extract_tag_content(xml, "xMun").unwrap_or_default(),
+        uf: extract_tag_content(xml, "UF").unwrap_or_default(),
+        cep: extract_tag_content(xml, "CEP").unwrap_or_default(),
+        fone: extract_tag_content(xml, "fone").unwrap_or_default(),
+    }
+}
+
+fn parse_totals(xml: &str) -> NfeTotais {
+    NfeTotais {
+        bc_icms: extract_tag_content(xml, "vBC").unwrap_or_default(),
+        icms: extract_tag_content(xml, "vICMS").unwrap_or_default(),
+        bc_icms_st: extract_tag_content(xml, "vBCST").unwrap_or_default(),
+        icms_st: extract_tag_content(xml, "vST").unwrap_or_default(),
+        total_products: extract_tag_content(xml, "vProd").unwrap_or_default(),
+        freight: extract_tag_content(xml, "vFrete").unwrap_or_default(),
+        insurance: extract_tag_content(xml, "vSeg").unwrap_or_default(),
+        discount: extract_tag_content(xml, "vDesc").unwrap_or_default(),
+        other: extract_tag_content(xml, "vOutro").unwrap_or_default(),
+        ipi: extract_tag_content(xml, "vIPI").unwrap_or_default(),
+        pis: extract_tag_content(xml, "vPIS").unwrap_or_default(),
+        cofins: extract_tag_content(xml, "vCOFINS").unwrap_or_default(),
+        total_nfe: extract_tag_content(xml, "vNF").unwrap_or_default(),
+        v_tot_trib: extract_tag_content(xml, "vTotTrib").unwrap_or_default(),
+    }
+}
+
+fn parse_transport(xml: &str) -> NfeTransporte {
+    let mut t = NfeTransporte {
+        mod_frete: extract_tag_content(xml, "modFrete").unwrap_or_default(),
+        ..Default::default()
+    };
+    if let Some(transporta) = extract_block(xml, "transporta") {
+        t.transportadora.name = extract_tag_content(&transporta, "xNome").unwrap_or_default();
+        t.transportadora.cnpj_cpf = extract_tag_content(&transporta, "CNPJ")
+            .or_else(|| extract_tag_content(&transporta, "CPF"))
+            .unwrap_or_default();
+        t.transportadora.ie = extract_tag_content(&transporta, "IE").unwrap_or_default();
+        t.transportadora.address.logradouro = extract_tag_content(&transporta, "xEnder").unwrap_or_default();
+        t.transportadora.address.municipio = extract_tag_content(&transporta, "xMun").unwrap_or_default();
+        t.transportadora.address.uf = extract_tag_content(&transporta, "UF").unwrap_or_default();
+    }
+    if let Some(veic) = extract_block(xml, "veicTransp") {
+        t.veiculo_placa = extract_tag_content(&veic, "placa").unwrap_or_default();
+        t.veiculo_uf = extract_tag_content(&veic, "UF").unwrap_or_default();
+        t.veiculo_rntrc = extract_tag_content(&veic, "RNTRC").unwrap_or_default();
+    }
+    if let Some(vol) = extract_block(xml, "vol") {
+        t.vol_qvol = extract_tag_content(&vol, "qVol").unwrap_or_default();
+        t.vol_esp = extract_tag_content(&vol, "esp").unwrap_or_default();
+        t.vol_marca = extract_tag_content(&vol, "marca").unwrap_or_default();
+        t.vol_nvol = extract_tag_content(&vol, "nVol").unwrap_or_default();
+        t.vol_peso_l = extract_tag_content(&vol, "pesoL").unwrap_or_default();
+        t.vol_peso_b = extract_tag_content(&vol, "pesoB").unwrap_or_default();
+    }
+    t
+}
+
+fn parse_fatura(xml: &str) -> NfeFatura {
+    let mut f = NfeFatura {
+        duplicatas: Vec::new(),
+    };
+    let mut search_from = 0;
+    while let Some(dup_start) = xml[search_from..].find("<dup") {
+        let abs_start = search_from + dup_start;
+        if let Some(dup_end) = xml[abs_start..].find("</dup>") {
+            let dup_block = &xml[abs_start..abs_start + dup_end + 6];
+            f.duplicatas.push(NfeDuplicata {
+                n_dup: extract_tag_content(dup_block, "nDup").unwrap_or_default(),
+                d_venc: extract_tag_content(dup_block, "dVenc").unwrap_or_default(),
+                v_dup: extract_tag_content(dup_block, "vDup").unwrap_or_default(),
+            });
+            search_from = abs_start + dup_end + 6;
+        } else {
+            break;
+        }
+    }
+    f
 }
 
 fn parse_products(xml: &str) -> Vec<NfeProduto> {
@@ -1040,20 +1183,47 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
                 item_num
             };
 
+            let mut prod = NfeProduto {
+                num,
+                code: String::new(),
+                description: String::new(),
+                ncm: String::new(),
+                cfop: String::new(),
+                unit: String::new(),
+                qty: String::new(),
+                unit_price: String::new(),
+                total: String::new(),
+                ..Default::default()
+            };
+
             if let Some(prod_block) = extract_block(det_block, "prod") {
-                products.push(NfeProduto {
-                    num,
-                    code: extract_tag_content(&prod_block, "cProd").unwrap_or_default(),
-                    description: extract_tag_content(&prod_block, "xProd").unwrap_or_default(),
-                    ncm: extract_tag_content(&prod_block, "NCM").unwrap_or_default(),
-                    cfop: extract_tag_content(&prod_block, "CFOP").unwrap_or_default(),
-                    unit: extract_tag_content(&prod_block, "uCom").unwrap_or_default(),
-                    qty: extract_tag_content(&prod_block, "qCom").unwrap_or_default(),
-                    unit_price: extract_tag_content(&prod_block, "vUnCom").unwrap_or_default(),
-                    total: extract_tag_content(&prod_block, "vProd").unwrap_or_default(),
-                });
+                prod.code = extract_tag_content(&prod_block, "cProd").unwrap_or_default();
+                prod.description = extract_tag_content(&prod_block, "xProd").unwrap_or_default();
+                prod.ncm = extract_tag_content(&prod_block, "NCM").unwrap_or_default();
+                prod.cfop = extract_tag_content(&prod_block, "CFOP").unwrap_or_default();
+                prod.unit = extract_tag_content(&prod_block, "uCom").unwrap_or_default();
+                prod.qty = extract_tag_content(&prod_block, "qCom").unwrap_or_default();
+                prod.unit_price = extract_tag_content(&prod_block, "vUnCom").unwrap_or_default();
+                prod.total = extract_tag_content(&prod_block, "vProd").unwrap_or_default();
             }
 
+            if let Some(imposto) = extract_block(det_block, "imposto") {
+                prod.v_tot_trib = extract_tag_content(&imposto, "vTotTrib").unwrap_or_default();
+                if let Some(icms) = extract_block(&imposto, "ICMS") {
+                    prod.cst = extract_tag_content(&icms, "CST")
+                        .or_else(|| extract_tag_content(&icms, "CSOSN"))
+                        .unwrap_or_default();
+                    prod.bc_icms = extract_tag_content(&icms, "vBC").unwrap_or_default();
+                    prod.aliq_icms = extract_tag_content(&icms, "pICMS").unwrap_or_default();
+                    prod.v_icms = extract_tag_content(&icms, "vICMS").unwrap_or_default();
+                }
+                if let Some(ipi) = extract_block(&imposto, "IPI") {
+                    prod.aliq_ipi = extract_tag_content(&ipi, "pIPI").unwrap_or_default();
+                    prod.v_ipi = extract_tag_content(&ipi, "vIPI").unwrap_or_default();
+                }
+            }
+
+            products.push(prod);
             search_from = abs_start + det_end + 6;
             item_num += 1;
         } else {
@@ -1078,35 +1248,89 @@ fn generate_danfe_html(data: &NfeData) -> String {
 
     let cnpj_emit = format_cnpj_cpf(&data.emitente.cnpj_cpf);
     let cnpj_dest = format_cnpj_cpf(&data.destinatario.cnpj_cpf);
+    let cnpj_transp = format_cnpj_cpf(&data.transporte.transportadora.cnpj_cpf);
 
-    let data_emissao_fmt = if data.data_emissao.len() >= 10 {
-        let parts: Vec<&str> = data.data_emissao[..10].split('-').collect();
-        if parts.len() == 3 {
-            format!("{}/{}/{}", parts[2], parts[1], parts[0])
-        } else {
-            data.data_emissao.clone()
-        }
-    } else {
-        data.data_emissao.clone()
+    let format_addr = |a: &NfeAddress| -> String {
+        let mut parts = Vec::new();
+        if !a.logradouro.is_empty() { parts.push(format!("{}, {}", a.logradouro, a.nro)); }
+        if !a.bairro.is_empty() { parts.push(a.bairro.clone()); }
+        if !a.municipio.is_empty() { parts.push(format!("{} - {}", a.municipio, a.uf)); }
+        if !a.cep.is_empty() { parts.push(format!("CEP: {}", a.cep)); }
+        if !a.fone.is_empty() { parts.push(format!("Fone: {}", a.fone)); }
+        parts.join(" - ")
     };
+
+    let emit_addr = format_addr(&data.emitente.address);
+    let dest_addr = format_addr(&data.destinatario.address);
+    let transp_addr = format_addr(&data.transporte.transportadora.address);
+
+    let fmt_date = |d: &str| -> String {
+         if d.len() >= 10 {
+            let parts: Vec<&str> = d[..10].split('-').collect();
+            if parts.len() == 3 {
+                return format!("{}/{}/{}", parts[2], parts[1], parts[0]);
+            }
+         }
+         d.to_string()
+    };
+    
+    let data_emissao_fmt = fmt_date(&data.data_emissao);
+    let data_sai_ent_fmt = fmt_date(&data.data_saida_entrada);
 
     let mut products_html = String::new();
     for p in &data.produtos {
         products_html.push_str(&format!(
-            "<tr>\
-                <td style=\"text-align:center\">{}</td>\
-                <td>{}</td>\
-                <td>{}</td>\
-                <td>{}</td>\
-                <td>{}</td>\
-                <td>{}</td>\
-                <td style=\"text-align:right\">{}</td>\
-                <td style=\"text-align:right\">{}</td>\
-                <td style=\"text-align:right\">{}</td>\
+            "<tr>
+                <td class='center'>{}</td>
+                <td>{}</td>
+                <td>{}</td>
+                <td class='center'>{}</td>
+                <td class='center'>{}</td>
+                <td class='center'>{}</td>
+                <td class='center'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
+                <td class='right'>{}</td>
             </tr>",
-            p.num, p.code, p.description, p.ncm, p.cfop, p.unit, p.qty, p.unit_price, p.total
+            p.code, p.description, p.ncm, p.cst, p.cfop, p.unit, p.qty, p.unit_price, p.total,
+            p.bc_icms, p.v_icms, p.v_ipi, p.aliq_icms, p.aliq_ipi
         ));
     }
+
+    let barcode_script = r#"
+    <script>
+    (function() {
+        function barcode128c(k) {
+            var P=['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+            var c=[105];
+            for(var i=0;i<k.length;i+=2)c.push(parseInt(k.substr(i,2)));
+            var s=c[0];for(var j=1;j<c.length;j++)s+=c[j]*j;
+            c.push(s%103);c.push(106);
+            var pat='';for(var m=0;m<c.length;m++)pat+=P[c[m]];
+            var cv=document.createElement('canvas');
+            var sc=2,tw=0;
+            for(var n=0;n<pat.length;n++)tw+=parseInt(pat[n]);
+            cv.width=(tw+20)*sc;cv.height=55;
+            var ctx=cv.getContext('2d');
+            ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+            var x=10*sc;
+            for(var q=0;q<pat.length;q++){
+                var bw=parseInt(pat[q])*sc;
+                ctx.fillStyle=((q%2)==0)?'#000':'#fff';
+                ctx.fillRect(x,0,bw,cv.height);
+                x+=bw;
+            }
+            return cv.toDataURL();
+        }
+        var img = document.getElementById("barcode-img");
+        if (img) img.src = barcode128c(img.dataset.key);
+    })();
+    </script>
+    "#;
 
     format!(
         r#"<!DOCTYPE html>
@@ -1116,191 +1340,372 @@ fn generate_danfe_html(data: &NfeData) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DANFE - NF-e {numero}</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: Arial, Helvetica, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; color: #1a1a1a; background: #fff; }}
-        .header {{ text-align: center; border: 2px solid #000; padding: 15px; margin-bottom: 2px; }}
-        .header h1 {{ font-size: 22px; margin-bottom: 4px; }}
-        .header .subtitle {{ font-size: 12px; color: #555; }}
-        .key-box {{ border: 2px solid #000; padding: 10px; text-align: center; margin-bottom: 2px; }}
-        .key-box .label {{ font-size: 10px; color: #555; text-transform: uppercase; }}
-        .key-box .key {{ font-family: 'Courier New', monospace; font-size: 15px; letter-spacing: 1px; margin-top: 4px; }}
-        .section {{ border: 2px solid #000; padding: 10px; margin-bottom: 2px; }}
-        .section-title {{ font-size: 11px; text-transform: uppercase; color: #555; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-bottom: 8px; font-weight: bold; }}
-        .field-row {{ display: flex; gap: 15px; margin-bottom: 6px; flex-wrap: wrap; }}
-        .field {{ flex: 1; min-width: 120px; }}
-        .field .label {{ font-size: 9px; text-transform: uppercase; color: #777; }}
-        .field .value {{ font-size: 12px; font-weight: 500; }}
-        table {{ width: 100%; border-collapse: collapse; }}
-        th {{ background: #f0f0f0; font-size: 10px; text-transform: uppercase; padding: 5px 6px; border: 1px solid #999; text-align: left; }}
-        td {{ font-size: 11px; padding: 4px 6px; border: 1px solid #ccc; }}
-        .totals-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }}
-        .total-item {{ padding: 6px; border: 1px solid #ccc; }}
-        .total-item .label {{ font-size: 9px; text-transform: uppercase; color: #777; }}
-        .total-item .value {{ font-size: 13px; font-weight: bold; }}
-        .total-highlight {{ background: #f5f5f5; }}
-        .total-highlight .value {{ font-size: 16px; color: #000; }}
-        .protocol {{ border: 2px solid #000; padding: 8px; margin-bottom: 2px; text-align: center; font-size: 11px; }}
-        .footer {{ text-align: center; margin-top: 15px; font-size: 10px; color: #999; border-top: 1px solid #ddd; padding-top: 10px; }}
-        @media print {{ body {{ padding: 10px; }} }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: "Times New Roman", Times, serif; }}
+        body {{ background: #eee; padding: 20px 0; }}
+        .page {{ width: 210mm; background: #fff; margin: 0 auto; padding: 10mm; border: 1px solid #ccc; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
+        .box {{ border: 1px solid #000; margin-top: -1px; margin-left: -1px; position: relative; padding: 2px 4px; height: 100%; }}
+        .row {{ display: flex; }}
+        .col {{ display: flex; flex-direction: column; }}
+        .label {{ font-size: 9px; font-weight: bold; text-transform: uppercase; line-height: 1; margin-bottom: 2px; }}
+        .content {{ font-size: 11px; font-weight: normal; }}
+        .bold {{ font-weight: bold; }}
+        .center {{ text-align: center; justify-content: center; }}
+        .right {{ text-align: right; }}
+        .section-header {{ background: #eee; font-size: 10px; font-weight: bold; text-transform: uppercase; border: 1px solid #000; margin-top: 5px; margin-left: -1px; padding: 2px; }}
+        
+        /* Specific Layout Tweaks */
+        .canhoto {{ height: 26mm; margin-bottom: 5px; }}
+        .danfe-header {{ height: 38mm; }}
+        .barcode-box {{ display: flex; align-items: center; justify-content: center; padding: 5px; }}
+        .barcode-box img {{ max-width: 100%; height: 50px; }}
+        
+        table {{ width: 100%; border-collapse: collapse; font-size: 9px; }}
+        table th {{ border: 1px solid #000; padding: 2px; font-weight: bold; background: #eee; }}
+        table td {{ border: 1px solid #000; padding: 2px; }}
+        
+        @media print {{
+            body {{ background: #fff; padding: 0; }}
+            .page {{ margin: 0; padding: 5mm; border: none; box-shadow: none; width: 100%; }}
+        }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>DANFE</h1>
-        <div class="subtitle">Documento Auxiliar da Nota Fiscal Eletr&ocirc;nica</div>
-        <div style="margin-top: 8px; font-size: 14px;">
-            <strong>NF-e N.&ordm; {numero}</strong> &mdash; S&eacute;rie {serie} &mdash; {data_emissao}
+    <div class="page">
+        <!-- CANHOTO -->
+        <div class="row canhoto">
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Recebemos de {emit_nome} os produtos constantes na Nota Fiscal indicada ao lado</div>
+                     <div class="content center" style="margin-top: 10px">DATA DE RECEBIMENTO</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">&nbsp;</div>
+                     <div class="content center" style="margin-top: 10px">IDENTIFICA&Ccedil;&Atilde;O E ASSINATURA DO RECEBEDOR</div>
+                 </div>
+             </div>
+             <div class="col" style="width: 35mm">
+                 <div class="box center">
+                     <div class="label">NF-e</div>
+                     <div class="content bold" style="font-size: 14px">N&ordm; {numero}</div>
+                     <div class="content bold">S&Eacute;RIE {serie}</div>
+                 </div>
+             </div>
         </div>
-    </div>
-
-    <div class="key-box">
-        <div class="label">Chave de Acesso</div>
-        <div class="key">{chave}</div>
-    </div>
-
-    <div class="protocol">
-        <strong>Protocolo de Autoriza&ccedil;&atilde;o:</strong> {protocolo}
-    </div>
-
-    <div class="section">
-        <div class="section-title">Emitente</div>
-        <div class="field-row">
-            <div class="field" style="flex:2">
-                <div class="label">Raz&atilde;o Social</div>
-                <div class="value">{emit_nome}</div>
+        
+        <!-- HEADER -->
+        <div class="row danfe-header">
+            <div class="col" style="flex: 3.5">
+                <div class="box center">
+                    <div class="content bold" style="font-size: 14px">{emit_nome}</div>
+                    <div class="content" style="font-size: 10px; margin-top: 4px">{emit_addr}</div>
+                </div>
             </div>
-            <div class="field">
-                <div class="label">CNPJ/CPF</div>
-                <div class="value">{emit_cnpj}</div>
+            <div class="col" style="width: 30mm">
+                 <div class="box center">
+                     <div class="content bold" style="font-size: 24px">DANFE</div>
+                     <div class="label" style="font-size: 8px">Documento Auxiliar<br>da Nota Fiscal<br>Eletr&ocirc;nica</div>
+                     <div class="row" style="width: 100%; margin-top: 4px">
+                         <div class="col center" style="flex:1">
+                             <div class="label">0 - Entrada<br>1 - Saida</div>
+                         </div>
+                         <div class="col center" style="flex:1; border: 1px solid #000; margin: 2px">
+                             <div class="content bold" style="font-size: 16px">{tipo_nf}</div>
+                         </div>
+                     </div>
+                     <div class="content bold">N&ordm; {numero}</div>
+                     <div class="content bold">S&Eacute;RIE {serie}</div>
+                 </div>
             </div>
-            <div class="field">
-                <div class="label">IE</div>
-                <div class="value">{emit_ie}</div>
-            </div>
-        </div>
-        <div class="field-row">
-            <div class="field" style="flex:3">
-                <div class="label">Endere&ccedil;o</div>
-                <div class="value">{emit_addr}</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title">Destinat&aacute;rio</div>
-        <div class="field-row">
-            <div class="field" style="flex:2">
-                <div class="label">Raz&atilde;o Social</div>
-                <div class="value">{dest_nome}</div>
-            </div>
-            <div class="field">
-                <div class="label">CNPJ/CPF</div>
-                <div class="value">{dest_cnpj}</div>
-            </div>
-            <div class="field">
-                <div class="label">IE</div>
-                <div class="value">{dest_ie}</div>
-            </div>
-        </div>
-        <div class="field-row">
-            <div class="field" style="flex:3">
-                <div class="label">Endere&ccedil;o</div>
-                <div class="value">{dest_addr}</div>
+            <div class="col" style="flex: 4.5">
+                 <div class="box barcode-box">
+                    <img id="barcode-img" data-key="{chave}" alt="Codigo de Barras">
+                 </div>
+                 <div class="box">
+                     <div class="label">Chave de Acesso</div>
+                     <div class="content center bold" style="font-size: 11px">{chave}</div>
+                 </div>
+                 <div class="box">
+                     <div class="label">Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora</div>
+                 </div>
             </div>
         </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title">Produtos / Servi&ccedil;os</div>
-        <table>
-            <thead>
-                <tr>
-                    <th style="width:30px">#</th>
-                    <th style="width:70px">C&oacute;digo</th>
-                    <th>Descri&ccedil;&atilde;o</th>
-                    <th style="width:70px">NCM</th>
-                    <th style="width:50px">CFOP</th>
-                    <th style="width:40px">Un.</th>
-                    <th style="width:60px;text-align:right">Qtd.</th>
-                    <th style="width:70px;text-align:right">Vl. Unit.</th>
-                    <th style="width:80px;text-align:right">Vl. Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {products}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="section">
-        <div class="section-title">Totais</div>
-        <div class="totals-grid">
-            <div class="total-item">
-                <div class="label">BC ICMS</div>
-                <div class="value">{bc_icms}</div>
+        
+        <div class="row">
+            <div class="col" style="flex: 6">
+                 <div class="box">
+                     <div class="label">Natureza da Opera&ccedil;&atilde;o</div>
+                     <div class="content wrap">{nat_op}</div>
+                 </div>
             </div>
-            <div class="total-item">
-                <div class="label">ICMS</div>
-                <div class="value">{icms}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">BC ICMS ST</div>
-                <div class="value">{bc_icms_st}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">ICMS ST</div>
-                <div class="value">{icms_st}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">Frete</div>
-                <div class="value">{freight}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">Seguro</div>
-                <div class="value">{insurance}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">Desconto</div>
-                <div class="value">{discount}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">Outras Desp.</div>
-                <div class="value">{other}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">IPI</div>
-                <div class="value">{ipi}</div>
-            </div>
-            <div class="total-item">
-                <div class="label">Total Produtos</div>
-                <div class="value">{total_products}</div>
-            </div>
-            <div class="total-item total-highlight" style="grid-column: span 2;">
-                <div class="label">Valor Total da NF-e</div>
-                <div class="value">R$ {total_nfe}</div>
+            <div class="col" style="flex: 4">
+                 <div class="box">
+                     <div class="label">Protocolo de Autoriza&ccedil;&atilde;o de Uso</div>
+                     <div class="content center">{protocolo}</div>
+                 </div>
             </div>
         </div>
-    </div>
+        
+        <div class="row">
+            <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
+                     <div class="content">{emit_ie}</div>
+                 </div>
+            </div>
+            <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Inscri&ccedil;&atilde;o Estadual do Subst. Trib.</div>
+                     <div class="content"></div>
+                 </div>
+            </div>
+            <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">CNPJ</div>
+                     <div class="content">{emit_cnpj}</div>
+                 </div>
+            </div>
+        </div>
 
-    <div class="footer">
-        Gerado por Util Hub &mdash; Documento auxiliar para visualiza&ccedil;&atilde;o. N&atilde;o possui valor fiscal.
+        <!-- DESTINATARIO -->
+        <div class="section-header">Destinat&aacute;rio / Remetente</div>
+        <div class="row">
+             <div class="col" style="flex: 6">
+                 <div class="box">
+                     <div class="label">Nome / Raz&atilde;o Social</div>
+                     <div class="content">{dest_nome}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 2">
+                 <div class="box">
+                     <div class="label">CNPJ / CPF</div>
+                     <div class="content">{dest_cnpj}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1.5">
+                 <div class="box">
+                     <div class="label">Data da Emiss&atilde;o</div>
+                     <div class="content right">{data_emissao}</div>
+                 </div>
+             </div>
+        </div>
+        <div class="row">
+             <div class="col" style="flex: 5">
+                 <div class="box">
+                     <div class="label">Endere&ccedil;o</div>
+                     <div class="content">{dest_addr}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 3">
+                 <div class="box">
+                     <div class="label">Bairro / Distrito</div>
+                     <div class="content"></div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1.5">
+                 <div class="box">
+                     <div class="label">Data Sa&iacute;da/Entrada</div>
+                     <div class="content right">{data_sai_ent}</div>
+                 </div>
+             </div>
+        </div>
+         <div class="row">
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Munic&iacute;pio</div>
+                     <div class="content"></div>
+                 </div>
+             </div>
+             <div class="col" style="width: 20mm">
+                 <div class="box">
+                     <div class="label">Fone / Fax</div>
+                     <div class="content"></div>
+                 </div>
+             </div>
+             <div class="col" style="width: 15mm">
+                 <div class="box">
+                     <div class="label">UF</div>
+                     <div class="content"></div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 2">
+                 <div class="box">
+                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
+                     <div class="content">{dest_ie}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1.5">
+                 <div class="box">
+                     <div class="label">Hora Sa&iacute;da</div>
+                     <div class="content right">{hora_sai}</div>
+                 </div>
+             </div>
+        </div>
+        
+        <!-- IMPOSTO -->
+        <div class="section-header">C&aacute;lculo do Imposto</div>
+        <div class="row">
+             <div class="col" style="flex:1"><div class="box"><div class="label">Base de C&aacute;lculo do ICMS</div><div class="content right">{bc_icms}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do ICMS</div><div class="content right">{icms}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Base de C&aacute;lculo do ICMS ST</div><div class="content right">{bc_icms_st}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do ICMS ST</div><div class="content right">{icms_st}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor Total dos Produtos</div><div class="content right">{total_products}</div></div></div>
+        </div>
+        <div class="row">
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do Frete</div><div class="content right">{freight}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do Seguro</div><div class="content right">{insurance}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Desconto</div><div class="content right">{discount}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Outras Despesas Acess.</div><div class="content right">{other}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do IPI</div><div class="content right">{ipi}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Valor Total da Nota</div><div class="content right bold">{total_nfe}</div></div></div>
+        </div>
+        
+        <!-- TRANSPORTADOR -->
+        <div class="section-header">Transportador / Volumes Transportados</div>
+        <div class="row">
+             <div class="col" style="flex: 4">
+                 <div class="box">
+                     <div class="label">Raz&atilde;o Social</div>
+                     <div class="content">{transp_nome}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Frete por Conta</div>
+                     <div class="content">{mod_frete}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">C&oacute;digo ANTT</div>
+                     <div class="content">{rntrc}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Placa do Ve&iacute;culo</div>
+                     <div class="content">{placa}</div>
+                 </div>
+             </div>
+             <div class="col" style="width: 15mm">
+                 <div class="box">
+                     <div class="label">UF</div>
+                     <div class="content">{veic_uf}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 2">
+                 <div class="box">
+                     <div class="label">CNPJ / CPF</div>
+                     <div class="content">{transp_cnpj}</div>
+                 </div>
+             </div>
+        </div>
+        <div class="row">
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Endere&ccedil;o</div>
+                     <div class="content">{transp_addr}</div>
+                 </div>
+             </div>
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Munic&iacute;pio</div>
+                     <div class="content">{transp_mun}</div>
+                 </div>
+             </div>
+              <div class="col" style="width: 15mm">
+                 <div class="box">
+                     <div class="label">UF</div>
+                     <div class="content">{transp_uf}</div>
+                 </div>
+             </div>
+              <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
+                     <div class="content">{transp_ie}</div>
+                 </div>
+             </div>
+        </div>
+        <div class="row">
+             <div class="col" style="flex:1"><div class="box"><div class="label">Quantidade</div><div class="content right">{qvol}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Esp&eacute;cie</div><div class="content">{esp}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Marca</div><div class="content">{marca}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Numera&ccedil;&atilde;o</div><div class="content">{nvol}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Peso Bruto</div><div class="content right">{peso_b}</div></div></div>
+             <div class="col" style="flex:1"><div class="box"><div class="label">Peso L&iacute;quido</div><div class="content right">{peso_l}</div></div></div>
+        </div>
+        
+        <!-- PRODUTOS -->
+        <div class="section-header">Dados do Produto / Servi&ccedil;o</div>
+        <div class="row">
+            <table>
+                 <thead>
+                    <tr>
+                        <th>C&oacute;digo</th>
+                        <th>Descri&ccedil;&atilde;o</th>
+                        <th>NCM</th>
+                        <th>CST</th>
+                        <th>CFOP</th>
+                        <th>Unid.</th>
+                        <th>Qtd.</th>
+                        <th>Vlr. Unit.</th>
+                        <th>Vlr. Total</th>
+                        <th>BC ICMS</th>
+                        <th>Vlr. ICMS</th>
+                        <th>Vlr. IPI</th>
+                        <th>% ICMS</th>
+                        <th>% IPI</th>
+                    </tr>
+                 </thead>
+                 <tbody>
+                    {products}
+                 </tbody>
+            </table>
+        </div>
+        
+        <!-- DADOS ADICIONAIS -->
+        <div class="section-header">Dados Adicionais</div>
+        <div class="row" style="height: 30mm">
+             <div class="col" style="flex: 1">
+                 <div class="box">
+                     <div class="label">Informa&ccedil;&otilde;es Complementares</div>
+                     <div class="content">{inf_cpl}</div>
+                 </div>
+             </div>
+             <div class="col" style="width: 80mm">
+                 <div class="box">
+                     <div class="label">Reservado ao Fisco</div>
+                     <div class="content">{inf_fisco}</div>
+                 </div>
+             </div>
+        </div>
+        
+        <div class="center" style="margin-top: 10px; font-size: 10px; color: #999">
+             Gerado pelo Util Hub
+        </div>
     </div>
+    {scripts}
 </body>
 </html>"#,
         numero = data.numero,
         serie = data.serie,
         data_emissao = data_emissao_fmt,
+        data_sai_ent = data_sai_ent_fmt,
+        hora_sai = data.hora_saida_entrada,
         chave = chave_formatada,
         protocolo = data.protocolo,
+        nat_op = data.nat_op,
+        tipo_nf = data.tipo_nf,
         emit_nome = data.emitente.name,
         emit_cnpj = cnpj_emit,
         emit_ie = data.emitente.ie,
-        emit_addr = data.emitente.address,
+        emit_addr = emit_addr,
         dest_nome = data.destinatario.name,
         dest_cnpj = cnpj_dest,
         dest_ie = data.destinatario.ie,
-        dest_addr = data.destinatario.address,
-        products = products_html,
+        dest_addr = dest_addr,
+        
         bc_icms = data.totais.bc_icms,
         icms = data.totais.icms,
         bc_icms_st = data.totais.bc_icms_st,
@@ -1312,6 +1717,29 @@ fn generate_danfe_html(data: &NfeData) -> String {
         ipi = data.totais.ipi,
         total_products = data.totais.total_products,
         total_nfe = data.totais.total_nfe,
+        
+        transp_nome = data.transporte.transportadora.name,
+        transp_cnpj = cnpj_transp,
+        transp_ie = data.transporte.transportadora.ie,
+        transp_addr = transp_addr,
+        transp_mun = data.transporte.transportadora.address.municipio,
+        transp_uf = data.transporte.transportadora.address.uf,
+        mod_frete = data.transporte.mod_frete,
+        placa = data.transporte.veiculo_placa,
+        veic_uf = data.transporte.veiculo_uf,
+        rntrc = data.transporte.veiculo_rntrc,
+        qvol = data.transporte.vol_qvol,
+        esp = data.transporte.vol_esp,
+        marca = data.transporte.vol_marca,
+        nvol = data.transporte.vol_nvol,
+        peso_b = data.transporte.vol_peso_b,
+        peso_l = data.transporte.vol_peso_l,
+        
+        inf_cpl = data.info_adicional.inf_cpl,
+        inf_fisco = data.info_adicional.inf_fisco,
+        
+        products = products_html,
+        scripts = barcode_script
     )
 }
 
