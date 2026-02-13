@@ -1,5 +1,6 @@
 // ── NFe Query Module ───────────────────────────────────────────
 use tauri::Manager;
+use std::io::Write;
 
 #[derive(serde::Serialize, Clone, Default)]
 pub struct NfeParty {
@@ -179,14 +180,14 @@ async fn query_nfe_impl(
         return Err(format!("SEFAZ retornou status {}: {}", status, preview));
     }
 
-    // 4. Parse SEFAZ SOAP response
-    let nfe_data = parse_sefaz_response(&body, &access_key)?;
+    // 4. Parse SEFAZ SOAP response and return NfeData AND raw XML string
+    let (nfe_data, raw_xml) = parse_sefaz_response(&body, &access_key)?;
 
-    // 5. Generate DANFE HTML
+    // 5. Generate DANFE HTML (Novo Layout Otimizado)
     let html = generate_danfe_html(&nfe_data);
 
-    // 6. Save to temp file and return path
-    let path = save_html_to_temp(&html)?;
+    // 6. Save both XML and HTML to temp file and return path
+    let path = save_files_to_temp(&html, &raw_xml, &access_key)?;
 
     Ok(path)
 }
@@ -232,11 +233,22 @@ pub fn download_danfe(source_path: String, access_key: String) -> Result<String,
         std::fs::create_dir_all(&downloads)
             .map_err(|e| format!("Falha ao criar pasta Downloads: {}", e))?;
     }
-    let filename = format!("DANFE_{}.html", &access_key[..20.min(access_key.len())]);
-    let dest = downloads.join(filename);
-    std::fs::copy(&source_path, &dest)
-        .map_err(|e| format!("Falha ao salvar arquivo: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
+    
+    // Salva HTML
+    let filename_html = format!("DANFE_{}.html", &access_key[..20.min(access_key.len())]);
+    let dest_html = downloads.join(filename_html);
+    std::fs::copy(&source_path, &dest_html)
+        .map_err(|e| format!("Falha ao salvar arquivo HTML: {}", e))?;
+
+    // Tenta salvar o XML se existir (assumindo que está na mesma pasta temp com extensão .xml)
+    let source_xml = std::path::PathBuf::from(&source_path).with_extension("xml");
+    if source_xml.exists() {
+        let filename_xml = format!("NFe_{}.xml", &access_key);
+        let dest_xml = downloads.join(filename_xml);
+        let _ = std::fs::copy(source_xml, dest_xml);
+    }
+
+    Ok(dest_html.to_string_lossy().to_string())
 }
 
 // ── Portal-Based Query (WebView with Captcha) ──────────────────
@@ -246,13 +258,11 @@ pub async fn query_nfe_portal(
     app: tauri::AppHandle,
     access_key: String,
 ) -> Result<(), String> {
-    // Close existing consultation window if open
     if let Some(existing) = app.get_webview_window("sefaz-nfe") {
         let _: Result<(), _> = existing.close();
     }
 
     let url = "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=";
-
     let init_script = build_portal_init_script(&access_key);
 
     tauri::WebviewWindowBuilder::new(
@@ -260,8 +270,8 @@ pub async fn query_nfe_portal(
         "sefaz-nfe",
         tauri::WebviewUrl::External(url.parse().unwrap()),
     )
-    .title("Consulta NFe - SEFAZ")
-    .inner_size(850.0, 780.0)
+    .title("Consulta NFe - SEFAZ (Resumo)")
+    .inner_size(1024.0, 800.0)
     .center()
     .initialization_script(&init_script)
     .build()
@@ -274,319 +284,20 @@ fn build_portal_init_script(access_key: &str) -> String {
     format!(
         r#"(function() {{
     'use strict';
-
     var KEY = '{access_key}';
-    var FILLED = false;
-    var SUBMITTED = false;
-    var RENDERED = false;
-
-    function gt(el) {{
-        return el ? (el.innerText || el.textContent || el.value || '').trim() : '';
-    }}
-
-    function isFormPage() {{
-        return !!document.querySelector('input[name*="txtChaveAcesso"]');
-    }}
-
-    /* ══════ FORM PAGE: auto-fill + captcha detect + auto-submit ══════ */
-
     function fillKey() {{
-        if (FILLED) return;
         var el = document.getElementById('ctl00_ContentPlaceHolder1_txtChaveAcessoResumo');
-        if (!el) {{
-            var list = document.querySelectorAll('input[name*="txtChaveAcesso"], input.txtChaveAcesso');
-            if (list.length) el = list[0];
-        }}
-        if (el) {{
-            el.value = KEY;
-            el.dispatchEvent(new Event('input',  {{bubbles:true}}));
-            el.dispatchEvent(new Event('change', {{bubbles:true}}));
-            el.dispatchEvent(new Event('blur',   {{bubbles:true}}));
-            FILLED = true;
-        }}
+        if (!el) el = document.querySelector('input[name*="txtChaveAcesso"]');
+        if (el) {{ el.value = KEY; }}
     }}
-
-    function captchaDone() {{
-        var r = document.querySelector(
-            'textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]'
-        );
-        return !!(r && r.value && r.value.trim().length > 10);
-    }}
-
-    function clickContinuar() {{
-        if (SUBMITTED) return;
-        SUBMITTED = true;
-        setTimeout(function() {{
-            var b = document.getElementById('ctl00_ContentPlaceHolder1_btnConsultarHCaptcha');
-            if (!b) b = document.querySelector('input[value="Continuar"]');
-            if (b) b.click();
-        }}, 400);
-    }}
-
-    function setupForm() {{
-        fillKey();
-        setTimeout(fillKey, 500);
-        setTimeout(fillKey, 1500);
-        setTimeout(fillKey, 3000);
-        var iv = setInterval(function() {{
-            if (captchaDone()) {{ clickContinuar(); clearInterval(iv); }}
-        }}, 500);
-    }}
-
-    /* ══════ RESULT PAGE: scrape NFe data + render DANFE ══════ */
-
-    function scrape() {{
-        var d = {{
-            chave:KEY, sit:'', num:'', serie:'', dtEmi:'',
-            eNome:'', eCnpj:'', eIe:'', eEnd:'',
-            dNome:'', dCnpj:'', dIe:'', dEnd:'',
-            vTotal:'', prot:''
-        }};
-
-        /* 1) Scan ASP.NET spans/labels by id */
-        var spans = document.querySelectorAll(
-            'span[id*="ContentPlaceHolder"], label[id*="ContentPlaceHolder"]'
-        );
-        for (var i = 0; i < spans.length; i++) {{
-            var id = (spans[i].id || '').toLowerCase();
-            var t = gt(spans[i]);
-            if (!t) continue;
-            if (id.includes('chave'))    d.chave = t.replace(/\s/g, '') || d.chave;
-            if (id.includes('situacao')) d.sit = t;
-            if (id.includes('protocolo') || id.includes('nprot')) d.prot = d.prot || t;
-        }}
-
-        /* 2) Scan table rows for label-value pairs */
-        var rows = document.querySelectorAll('tr');
-        for (var j = 0; j < rows.length; j++) {{
-            var cc = rows[j].querySelectorAll('td');
-            for (var k = 0; k < cc.length - 1; k++) {{
-                var lb = gt(cc[k]).toLowerCase();
-                var vl = gt(cc[k + 1]);
-                if (!lb || !vl) continue;
-
-                var fs = cc[k].closest ? cc[k].closest('fieldset') : null;
-                var lg = fs ? gt(fs.querySelector('legend')).toLowerCase() : '';
-                var isD = lg.includes('destinat') || lg.includes('tomador');
-
-                if (lb.includes('raz') || lb.includes('nome')) {{
-                    if (isD) d.dNome = d.dNome || vl;
-                    else d.eNome = d.eNome || vl;
-                }}
-                if (lb.includes('cnpj') || (lb.includes('cpf') && !lb.includes('ie'))) {{
-                    if (isD) d.dCnpj = d.dCnpj || vl;
-                    else d.eCnpj = d.eCnpj || vl;
-                }}
-                if (lb.includes('inscri') && lb.includes('estadual')) {{
-                    if (isD) d.dIe = d.dIe || vl;
-                    else d.eIe = d.eIe || vl;
-                }}
-                if (lb.includes('endere')) {{
-                    if (isD) d.dEnd = d.dEnd || vl;
-                    else d.eEnd = d.eEnd || vl;
-                }}
-                if (lb.includes('valor total') || lb.includes('valor da n')) {{
-                    d.vTotal = d.vTotal || vl;
-                }}
-                if (lb.includes('protocolo')) d.prot = d.prot || vl;
-                if ((lb.includes('n\u00famero') || lb.includes('numero')) && !lb.includes('prot') && !lb.includes('recib')) {{
-                    d.num = d.num || vl;
-                }}
-                if (lb.includes('s\u00e9rie') || lb === 'serie') d.serie = d.serie || vl;
-                if (lb.includes('data') && lb.includes('emiss')) d.dtEmi = d.dtEmi || vl;
-            }}
-        }}
-
-        return d;
-    }}
-
-    function barcode128c(k) {{
-        var P=['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
-        var c=[105];
-        for(var i=0;i<k.length;i+=2)c.push(parseInt(k.substr(i,2)));
-        var s=c[0];for(var j=1;j<c.length;j++)s+=c[j]*j;
-        c.push(s%103);c.push(106);
-        var pat='';for(var m=0;m<c.length;m++)pat+=P[c[m]];
-        var cv=document.createElement('canvas');
-        var sc=2,tw=0;
-        for(var n=0;n<pat.length;n++)tw+=parseInt(pat[n]);
-        cv.width=(tw+20)*sc;cv.height=55;
-        var ctx=cv.getContext('2d');
-        ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
-        var x=10*sc;
-        for(var q=0;q<pat.length;q++){{
-            var bw=parseInt(pat[q])*sc;
-            if(q%2===0){{ctx.fillStyle='#000';ctx.fillRect(x,0,bw,cv.height);}}
-            x+=bw;
-        }}
-        return cv.toDataURL();
-    }}
-
-    function danfe() {{
-        if (RENDERED) return;
-        RENDERED = true;
-
-        var d = scrape();
-        var cf = d.chave.replace(/(\d{{4}})/g, '$1 ').trim();
-        var bc = barcode128c(d.chave);
-
-        var sl = (d.sit || '').toLowerCase();
-        var stCls = sl.includes('autoriz') ? 'sa' : (sl.includes('cancel') || sl.includes('denega')) ? 'sc' : 'so';
-
-        var p = [];
-        p.push('<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">');
-        p.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
-        p.push('<title>DANFE - NF-e ' + (d.num || '') + '</title><style>');
-        p.push('*{{margin:0;padding:0;box-sizing:border-box}}');
-        p.push('body{{font-family:Arial,Helvetica,sans-serif;background:#d1d5db;color:#000;padding-bottom:70px}}');
-        p.push('.pg{{max-width:800px;margin:20px auto;background:#fff;border:1px solid #000;box-shadow:0 4px 24px rgba(0,0,0,.15)}}');
-        p.push('@media print{{body{{background:#fff;padding:0}}.pg{{margin:0;border:none;box-shadow:none}}.act{{display:none!important}}body{{padding-bottom:0!important}}}}');
-
-        /* Header grid: emitter | DANFE id */
-        p.push('.dh{{display:grid;grid-template-columns:1fr 180px;border-bottom:2px solid #000}}');
-        p.push('.dhe{{padding:12px;border-right:2px solid #000}}');
-        p.push('.dhe .en{{font-size:15px;font-weight:bold;margin-bottom:6px}}');
-        p.push('.dhe .ed{{font-size:10px;color:#333;line-height:1.7}}');
-        p.push('.dhd{{padding:12px;text-align:center;display:flex;flex-direction:column;justify-content:center;align-items:center}}');
-        p.push('.dhd .dl{{font-size:24px;font-weight:bold;letter-spacing:4px}}');
-        p.push('.dhd .ds{{font-size:8px;color:#555;margin:4px 0 10px;line-height:1.4}}');
-        p.push('.dhd .dn{{font-size:15px;font-weight:bold}}');
-        p.push('.dhd .dsr{{font-size:10px;color:#555;margin-top:2px}}');
-
-        /* Barcode */
-        p.push('.bc{{border-bottom:2px solid #000;padding:10px 12px;text-align:center}}');
-        p.push('.bc img{{height:50px;max-width:100%}}');
-        p.push('.bc .bl{{font-size:8px;color:#777;text-transform:uppercase;margin-top:6px}}');
-        p.push('.bc .bk{{font-family:"Courier New",monospace;font-size:12px;letter-spacing:2px;margin-top:2px}}');
-
-        /* Status row */
-        p.push('.sr{{border-bottom:2px solid #000;padding:8px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}}');
-        p.push('.sb{{display:inline-block;padding:4px 14px;border-radius:3px;font-size:11px;font-weight:bold;text-transform:uppercase}}');
-        p.push('.sa{{background:#dcfce7;color:#166534;border:1px solid #86efac}}');
-        p.push('.sc{{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5}}');
-        p.push('.so{{background:#fefce8;color:#854d0e;border:1px solid #fde047}}');
-        p.push('.pt{{font-size:10px;color:#444}}');
-
-        /* Section */
-        p.push('.se{{border-bottom:2px solid #000;padding:10px 12px}}');
-        p.push('.stl{{font-size:8px;text-transform:uppercase;color:#555;letter-spacing:1px;font-weight:bold;border-bottom:1px solid #ddd;padding-bottom:4px;margin-bottom:8px}}');
-        p.push('.fg{{display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px 12px;margin-bottom:4px}}');
-        p.push('.fgf{{grid-template-columns:1fr}}');
-        p.push('.fl{{font-size:8px;text-transform:uppercase;color:#888}}');
-        p.push('.fv{{font-size:11px;font-weight:500}}');
-
-        /* Total */
-        p.push('.vt{{border-bottom:2px solid #000;padding:16px 12px;text-align:center;background:#f9fafb}}');
-        p.push('.vt .vl{{font-size:9px;text-transform:uppercase;color:#777;letter-spacing:1px}}');
-        p.push('.vt .vv{{font-size:28px;font-weight:bold;margin-top:4px}}');
-
-        /* Date row */
-        p.push('.dt{{border-bottom:2px solid #000;padding:8px 12px;font-size:10px}}');
-
-        /* Footer */
-        p.push('.ft{{padding:10px 12px;text-align:center;font-size:9px;color:#999}}');
-
-        /* Action bar */
-        p.push('.act{{position:fixed;bottom:0;left:0;right:0;background:#1e293b;padding:12px;display:flex;justify-content:center;gap:12px;box-shadow:0 -4px 20px rgba(0,0,0,.3)}}');
-        p.push('.act button{{border:none;padding:10px 36px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;background:#4f46e5;color:#fff}}');
-        p.push('.act button:hover{{background:#6366f1}}');
-        p.push('</style></head><body>');
-
-        p.push('<div class="pg">');
-
-        /* ── DANFE Header: Emitter | DANFE identification ── */
-        p.push('<div class="dh">');
-        p.push('<div class="dhe">');
-        p.push('<div class="en">' + (d.eNome || '-') + '</div>');
-        p.push('<div class="ed">');
-        if (d.eCnpj) p.push('CNPJ: ' + d.eCnpj + '<br>');
-        if (d.eIe) p.push('IE: ' + d.eIe + '<br>');
-        if (d.eEnd) p.push(d.eEnd);
-        p.push('</div></div>');
-        p.push('<div class="dhd">');
-        p.push('<div class="dl">DANFE</div>');
-        p.push('<div class="ds">Documento Auxiliar da<br>Nota Fiscal Eletr\u00f4nica</div>');
-        if (d.num) p.push('<div class="dn">N\u00ba ' + d.num + '</div>');
-        if (d.serie) p.push('<div class="dsr">S\u00e9rie ' + d.serie + '</div>');
-        p.push('</div></div>');
-
-        /* ── Barcode + Access Key ── */
-        p.push('<div class="bc">');
-        p.push('<img src="' + bc + '" alt="C\u00f3digo de Barras"><br>');
-        p.push('<div class="bl">Chave de Acesso</div>');
-        p.push('<div class="bk">' + cf + '</div>');
-        p.push('</div>');
-
-        /* ── Status + Protocol ── */
-        p.push('<div class="sr">');
-        if (d.sit) p.push('<span class="sb ' + stCls + '">' + d.sit + '</span>');
-        if (d.prot) p.push('<span class="pt"><strong>Protocolo de Autoriza\u00e7\u00e3o:</strong> ' + d.prot + '</span>');
-        p.push('</div>');
-
-        /* ── Emission Date ── */
-        if (d.dtEmi) {{
-            p.push('<div class="dt"><strong>Data de Emiss\u00e3o:</strong> ' + d.dtEmi + '</div>');
-        }}
-
-        /* ── Destinatario ── */
-        p.push('<div class="se">');
-        p.push('<div class="stl">Destinat\u00e1rio / Remetente</div>');
-        p.push('<div class="fg">');
-        p.push('<div><div class="fl">Raz\u00e3o Social / Nome</div><div class="fv">' + (d.dNome || '-') + '</div></div>');
-        p.push('<div><div class="fl">CNPJ/CPF</div><div class="fv">' + (d.dCnpj || '-') + '</div></div>');
-        p.push('<div><div class="fl">IE</div><div class="fv">' + (d.dIe || '-') + '</div></div>');
-        p.push('</div>');
-        if (d.dEnd) {{
-            p.push('<div class="fg fgf"><div><div class="fl">Endere\u00e7o</div><div class="fv">' + d.dEnd + '</div></div></div>');
-        }}
-        p.push('</div>');
-
-        /* ── Valor Total ── */
-        if (d.vTotal) {{
-            p.push('<div class="vt"><div class="vl">Valor Total da NF-e</div><div class="vv">R$ ' + d.vTotal + '</div></div>');
-        }}
-
-        /* ── Footer ── */
-        p.push('<div class="ft">Gerado por Util Hub \u2014 Documento auxiliar para visualiza\u00e7\u00e3o. N\u00e3o possui valor fiscal.</div>');
-        p.push('</div>');
-
-        /* ── Action bar ── */
-        p.push('<div class="act"><button onclick="window.print()">Imprimir DANFE</button></div>');
-        p.push('</body></html>');
-
-        document.open();
-        document.write(p.join(''));
-        document.close();
-    }}
-
-    function setupResult() {{
-        function attempt() {{
-            var body = document.body ? document.body.innerText : '';
-            var hasResult = body.indexOf('Emitente') !== -1
-                || document.querySelector('input[id*="btnDownload"]')
-                || document.querySelector('input[id*="btnVoltar"]');
-            if (hasResult) {{
-                setTimeout(danfe, 500);
-            }} else {{
-                setTimeout(attempt, 500);
-            }}
-        }}
-        attempt();
-    }}
-
-    /* ══════ INIT ══════ */
-
-    function init() {{
-        if (isFormPage()) setupForm();
-        else setupResult();
-    }}
-
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-    else init();
+    setTimeout(fillKey, 500);
+    setTimeout(fillKey, 1500);
 }})();"#,
         access_key = access_key,
     )
 }
+
+// ── Cert Helpers ──────────────────────────────────────────────
 
 #[cfg(windows)]
 fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String> {
@@ -600,225 +311,83 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String
         .collect();
 
     unsafe {
-        // Open MY store
         let store_name: Vec<u16> = "MY\0".encode_utf16().collect();
         let store = CertOpenSystemStoreW(0, store_name.as_ptr());
-        if store.is_null() {
-            return Err("Falha ao abrir repositório de certificados".into());
-        }
-
-        // Find cert by thumbprint
+        if store.is_null() { return Err("Falha ao abrir repositório".into()); }
+        
         let cert = find_cert_by_thumbprint_raw(store, thumbprint);
         if cert.is_null() {
             CertCloseStore(store, 0);
-            return Err("Certificado não encontrado com o thumbprint informado".into());
+            return Err("Certificado não encontrado".into());
         }
 
-        // Extract CNPJ from certificate subject
         let cnpj = extract_cnpj_from_cert(cert);
-
-        // Create in-memory store for PFX export
-        let mem_store = CertOpenStore(
-            CERT_STORE_PROV_MEMORY,
-            0,
-            0,
-            0,
-            std::ptr::null(),
-        );
-        if mem_store.is_null() {
-            CertCloseStore(store, 0);
-            return Err("Falha ao criar repositório temporário".into());
-        }
-
-        // Add cert to memory store
-        const LOCAL_CERT_STORE_ADD_ALWAYS: u32 = 4;
-        let added = CertAddCertificateContextToStore(
-            mem_store,
-            cert,
-            LOCAL_CERT_STORE_ADD_ALWAYS,
-            std::ptr::null_mut(),
-        );
-        if added == 0 {
-            CertCloseStore(mem_store, 0);
-            CertCloseStore(store, 0);
-            return Err("Falha ao adicionar certificado ao repositório temporário".into());
-        }
-
-        // Prepare PFX export
-        let password_wide: Vec<u16> = password
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-
-        const LOCAL_EXPORT_PRIVATE_KEYS: u32 = 0x0004;
-        const LOCAL_REPORT_NOT_ABLE_TO_EXPORT: u32 = 0x0002;
-
-        let mut pfx_blob = CRYPT_INTEGER_BLOB {
-            cbData: 0,
-            pbData: std::ptr::null_mut(),
-        };
-
-        // First call: get required size
-        let ok = PFXExportCertStoreEx(
-            mem_store,
-            &mut pfx_blob,
-            password_wide.as_ptr(),
-            std::ptr::null_mut(),
-            LOCAL_EXPORT_PRIVATE_KEYS | LOCAL_REPORT_NOT_ABLE_TO_EXPORT,
-        );
-        if ok == 0 {
-            CertCloseStore(mem_store, 0);
-            CertCloseStore(store, 0);
-            return Err(
-                "Falha ao exportar certificado. A chave privada pode não ser exportável.".into(),
-            );
-        }
-
-        // Allocate buffer and export
+        let mem_store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, std::ptr::null());
+        
+        CertAddCertificateContextToStore(mem_store, cert, 4, std::ptr::null_mut());
+        
+        let password_wide: Vec<u16> = password.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut pfx_blob = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+        
+        PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
+        
         let mut pfx_data = vec![0u8; pfx_blob.cbData as usize];
         pfx_blob.pbData = pfx_data.as_mut_ptr();
-
-        let ok = PFXExportCertStoreEx(
-            mem_store,
-            &mut pfx_blob,
-            password_wide.as_ptr(),
-            std::ptr::null_mut(),
-            LOCAL_EXPORT_PRIVATE_KEYS | LOCAL_REPORT_NOT_ABLE_TO_EXPORT,
-        );
+        
+        let ok = PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
 
         CertCloseStore(mem_store, 0);
         CertCloseStore(store, 0);
 
-        if ok == 0 {
-            return Err("Falha ao exportar certificado como PFX".into());
-        }
-
+        if ok == 0 { return Err("Falha ao exportar PFX".into()); }
         Ok((pfx_data, password, cnpj))
     }
 }
 
 #[cfg(windows)]
-unsafe fn find_cert_by_thumbprint_raw(
-    store: *mut std::ffi::c_void,
-    thumbprint: &str,
-) -> *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT {
+unsafe fn find_cert_by_thumbprint_raw(store: *mut std::ffi::c_void, thumbprint: &str) -> *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT {
     use windows_sys::Win32::Security::Cryptography::*;
-
     let mut prev: *const CERT_CONTEXT = std::ptr::null();
     loop {
         let cert = CertEnumCertificatesInStore(store, prev);
-        if cert.is_null() {
-            return std::ptr::null();
-        }
-
+        if cert.is_null() { return std::ptr::null(); }
         let tp = get_cert_thumbprint(cert);
-        if tp.eq_ignore_ascii_case(thumbprint) {
-            return cert;
-        }
-
+        if tp.eq_ignore_ascii_case(thumbprint) { return cert; }
         prev = cert;
     }
 }
 
 #[cfg(windows)]
-unsafe fn get_cert_thumbprint(
-    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
-) -> String {
+unsafe fn get_cert_thumbprint(cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT) -> String {
     use windows_sys::Win32::Security::Cryptography::CertGetCertificateContextProperty;
-
-    const CERT_SHA1_HASH_PROP_ID: u32 = 3;
     let mut hash_size: u32 = 20;
     let mut hash = vec![0u8; 20];
-
-    let ok = CertGetCertificateContextProperty(
-        cert,
-        CERT_SHA1_HASH_PROP_ID,
-        hash.as_mut_ptr() as *mut _,
-        &mut hash_size,
-    );
-    if ok == 0 {
+    if CertGetCertificateContextProperty(cert, 3, hash.as_mut_ptr() as *mut _, &mut hash_size) == 0 {
         return String::new();
     }
-
-    hash[..hash_size as usize]
-        .iter()
-        .map(|b| format!("{:02X}", b))
-        .collect::<Vec<_>>()
-        .join(":")
+    hash[..hash_size as usize].iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(":")
 }
 
 #[cfg(windows)]
-unsafe fn extract_cnpj_from_cert(
-    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
-) -> String {
+unsafe fn extract_cnpj_from_cert(cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT) -> String {
     use windows_sys::Win32::Security::Cryptography::*;
-
-    // Get simple display name (often "COMPANY:CNPJ")
     let mut buf = vec![0u16; 512];
-    let len = CertGetNameStringW(
-        cert,
-        CERT_NAME_SIMPLE_DISPLAY_TYPE,
-        0,
-        std::ptr::null(),
-        buf.as_mut_ptr(),
-        buf.len() as u32,
-    );
-    let simple = if len > 1 {
-        String::from_utf16_lossy(&buf[..len as usize - 1])
-    } else {
-        String::new()
-    };
-
-    // Get full RDN subject
-    const LOCAL_CERT_NAME_RDN_TYPE: u32 = 2;
-    let mut rdn_buf = vec![0u16; 2048];
-    let rdn_len = CertGetNameStringW(
-        cert,
-        LOCAL_CERT_NAME_RDN_TYPE,
-        0,
-        std::ptr::null(),
-        rdn_buf.as_mut_ptr(),
-        rdn_buf.len() as u32,
-    );
-    let rdn = if rdn_len > 1 {
-        String::from_utf16_lossy(&rdn_buf[..rdn_len as usize - 1])
-    } else {
-        String::new()
-    };
-
-    // Extract CNPJ from either string
-    if let Some(cnpj) = find_cnpj_in_str(&simple) {
-        return cnpj;
-    }
-    if let Some(cnpj) = find_cnpj_in_str(&rdn) {
-        return cnpj;
-    }
+    let len = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, std::ptr::null(), buf.as_mut_ptr(), buf.len() as u32);
+    let simple = if len > 1 { String::from_utf16_lossy(&buf[..len as usize - 1]) } else { String::new() };
+    if let Some(cnpj) = find_cnpj_in_str(&simple) { return cnpj; }
     String::new()
 }
 
 fn find_cnpj_in_str(s: &str) -> Option<String> {
-    // Pattern 1: after colon (e.g., "EMPRESA:12345678000190")
     for part in s.split(':') {
         let trimmed = part.trim();
-        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) {
-            return Some(trimmed.to_string());
-        }
+        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) { return Some(trimmed.to_string()); }
     }
-    // Pattern 2: any 14-digit contiguous sequence
     let mut buf = String::new();
     for c in s.chars() {
-        if c.is_ascii_digit() {
-            buf.push(c);
-        } else {
-            if buf.len() == 14 {
-                return Some(buf);
-            }
-            buf.clear();
-        }
+        if c.is_ascii_digit() { buf.push(c); } else { if buf.len() == 14 { return Some(buf); } buf.clear(); }
     }
-    if buf.len() == 14 {
-        return Some(buf);
-    }
+    if buf.len() == 14 { return Some(buf); }
     None
 }
 
@@ -826,90 +395,45 @@ fn find_cnpj_in_str(s: &str) -> Option<String> {
 
 fn build_soap_request(access_key: &str, cnpj: &str, uf_code: u32, tp_amb: &str) -> String {
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"
-                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                 xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <soap12:Header>
-    <nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">
-      <cUF>{uf}</cUF>
-      <versaoDados>1.01</versaoDados>
-    </nfeCabecMsg>
-  </soap12:Header>
-  <soap12:Body>
-    <nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">
-      <nfeDadosMsg>
-        <distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01">
-          <tpAmb>{tp_amb}</tpAmb>
-          <cUFAutor>{uf}</cUFAutor>
-          <CNPJ>{cnpj}</CNPJ>
-          <consChNFe>
-            <chNFe>{key}</chNFe>
-          </consChNFe>
-        </distDFeInt>
-      </nfeDadosMsg>
-    </nfeDistDFeInteresse>
-  </soap12:Body>
-</soap12:Envelope>"#,
-        uf = uf_code,
-        tp_amb = tp_amb,
-        cnpj = cnpj,
-        key = access_key,
+        r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap12:Header><nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><cUF>{uf}</cUF><versaoDados>1.01</versaoDados></nfeCabecMsg></soap12:Header><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><cUFAutor>{uf}</cUFAutor><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
+        uf = uf_code, tp_amb = tp_amb, cnpj = cnpj, key = access_key,
     )
 }
 
 // ── Response Parsing ───────────────────────────────────────────
 
-fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<NfeData, String> {
-    // Extract cStat and xMotivo from response
-    let cstat = extract_tag_content(soap_xml, "cStat")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let xmotivo = extract_tag_content(soap_xml, "xMotivo")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-
+fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, String), String> {
+    let cstat = extract_tag_content(soap_xml, "cStat").unwrap_or_default().trim().to_string();
     if cstat != "138" {
+        let xmotivo = extract_tag_content(soap_xml, "xMotivo").unwrap_or_default();
         return Err(format!("SEFAZ: {} - {}", cstat, xmotivo));
     }
 
-    // Find docZip elements
     let doc_zips = extract_all_doc_zips(soap_xml);
-    if doc_zips.is_empty() {
-        return Err("Nenhum documento encontrado na resposta da SEFAZ".into());
-    }
+    if doc_zips.is_empty() { return Err("Nenhum documento encontrado na resposta da SEFAZ".into()); }
 
-    // Find the procNFe document (full NFe XML), else use first docZip
-    let mut nfe_xml = None;
+    let mut nfe_xml_raw = String::new();
+    
+    // Procura procNFe (XML Completo)
     for (schema, b64_content) in &doc_zips {
         if schema.contains("procNFe") {
-            let compressed = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                b64_content,
-            )
-            .map_err(|e| format!("Falha ao decodificar base64: {}", e))?;
-
-            nfe_xml = Some(decompress_doc_zip(&compressed)?);
+            let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
+                .map_err(|e| format!("Falha decode base64: {}", e))?;
+            nfe_xml_raw = decompress_doc_zip(&compressed)?;
             break;
         }
     }
 
-    let nfe_xml = match nfe_xml {
-        Some(xml) => xml,
-        None => {
-            let (_, b64_content) = &doc_zips[0];
-            let compressed = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                b64_content,
-            )
-            .map_err(|e| format!("Falha ao decodificar base64: {}", e))?;
-            decompress_doc_zip(&compressed)?
-        }
-    };
+    // Fallback se não achar procNFe explícito
+    if nfe_xml_raw.is_empty() {
+        let (_, b64_content) = &doc_zips[0];
+        let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
+            .map_err(|e| format!("Falha decode base64: {}", e))?;
+        nfe_xml_raw = decompress_doc_zip(&compressed)?;
+    }
 
-    parse_nfe_xml(&nfe_xml, access_key)
+    let data = parse_nfe_xml(&nfe_xml_raw, access_key)?;
+    Ok((data, nfe_xml_raw))
 }
 
 fn extract_tag_content(xml: &str, tag: &str) -> Option<String> {
@@ -932,24 +456,13 @@ fn extract_block(xml: &str, tag: &str) -> Option<String> {
 fn extract_all_doc_zips(xml: &str) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let mut search_from = 0;
-
     while let Some(start) = xml[search_from..].find("<docZip") {
         let abs_start = search_from + start;
-
-        // Extract schema attribute
         let tag_section = &xml[abs_start..abs_start + xml[abs_start..].find('>').unwrap_or(200).min(200)];
         let schema = if let Some(schema_start) = tag_section.find("schema=\"") {
             let s = schema_start + 8;
-            if let Some(schema_end) = tag_section[s..].find('"') {
-                tag_section[s..s + schema_end].to_string()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        // Extract content
+            if let Some(schema_end) = tag_section[s..].find('"') { tag_section[s..s + schema_end].to_string() } else { String::new() }
+        } else { String::new() };
         if let Some(tag_end) = xml[abs_start..].find('>') {
             let content_start = abs_start + tag_end + 1;
             if let Some(close) = xml[content_start..].find("</docZip>") {
@@ -959,120 +472,57 @@ fn extract_all_doc_zips(xml: &str) -> Vec<(String, String)> {
                 continue;
             }
         }
-
         search_from = abs_start + 7;
     }
-
     results
 }
 
 fn decompress_doc_zip(data: &[u8]) -> Result<String, String> {
     use std::io::Read;
-
-    // Try gzip first
     {
         let mut decoder = flate2::read::GzDecoder::new(data);
         let mut result = String::new();
-        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() {
-            return Ok(result);
-        }
+        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() { return Ok(result); }
     }
-
-    // Fall back to raw deflate
-    {
-        let mut decoder = flate2::read::DeflateDecoder::new(data);
-        let mut result = String::new();
-        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() {
-            return Ok(result);
-        }
-    }
-
-    // Try zlib
-    {
-        let mut decoder = flate2::read::ZlibDecoder::new(data);
-        let mut result = String::new();
-        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() {
-            return Ok(result);
-        }
-    }
-
-    Err("Falha ao descomprimir documento (tentou gzip, deflate e zlib)".into())
+    Err("Falha ao descomprimir documento".into())
 }
 
 fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
-    let mut data = NfeData {
-        chave: access_key.to_string(),
-        ..Default::default()
-    };
-
-    // -- ide
+    let mut data = NfeData { chave: access_key.to_string(), ..Default::default() };
     if let Some(ide) = extract_block(xml, "ide") {
         data.numero = extract_tag_content(&ide, "nNF").unwrap_or_default();
         data.serie = extract_tag_content(&ide, "serie").unwrap_or_default();
         data.data_emissao = extract_tag_content(&ide, "dhEmi").unwrap_or_default();
-        data.data_saida_entrada = extract_tag_content(&ide, "dhSaiEnt")
-            .or_else(|| extract_tag_content(&ide, "dSaiEnt"))
-            .unwrap_or_default();
+        data.data_saida_entrada = extract_tag_content(&ide, "dhSaiEnt").or_else(|| extract_tag_content(&ide, "dSaiEnt")).unwrap_or_default();
         data.hora_saida_entrada = extract_tag_content(&ide, "hSaiEnt").unwrap_or_default();
         data.nat_op = extract_tag_content(&ide, "natOp").unwrap_or_default();
         data.tipo_nf = extract_tag_content(&ide, "tpNF").unwrap_or_default();
     }
-
-    // -- emitente
     if let Some(emit_block) = extract_block(xml, "emit") {
         data.emitente.name = extract_tag_content(&emit_block, "xNome").unwrap_or_default();
-        data.emitente.cnpj_cpf = extract_tag_content(&emit_block, "CNPJ")
-            .or_else(|| extract_tag_content(&emit_block, "CPF"))
-            .unwrap_or_default();
+        data.emitente.cnpj_cpf = extract_tag_content(&emit_block, "CNPJ").or_else(|| extract_tag_content(&emit_block, "CPF")).unwrap_or_default();
         data.emitente.ie = extract_tag_content(&emit_block, "IE").unwrap_or_default();
-        if let Some(addr) = extract_block(&emit_block, "enderEmit") {
-            data.emitente.address = parse_address(&addr);
-        }
+        if let Some(addr) = extract_block(&emit_block, "enderEmit") { data.emitente.address = parse_address(&addr); }
     }
-
-    // -- destinatario
     if let Some(dest_block) = extract_block(xml, "dest") {
         data.destinatario.name = extract_tag_content(&dest_block, "xNome").unwrap_or_default();
-        data.destinatario.cnpj_cpf = extract_tag_content(&dest_block, "CNPJ")
-            .or_else(|| extract_tag_content(&dest_block, "CPF"))
-            .unwrap_or_default();
+        data.destinatario.cnpj_cpf = extract_tag_content(&dest_block, "CNPJ").or_else(|| extract_tag_content(&dest_block, "CPF")).unwrap_or_default();
         data.destinatario.ie = extract_tag_content(&dest_block, "IE").unwrap_or_default();
-        if let Some(addr) = extract_block(&dest_block, "enderDest") {
-            data.destinatario.address = parse_address(&addr);
-        }
+        if let Some(addr) = extract_block(&dest_block, "enderDest") { data.destinatario.address = parse_address(&addr); }
     }
-
-    // -- produtos
     data.produtos = parse_products(xml);
-
-    // -- totais (ICMSTot)
-    if let Some(tot_block) = extract_block(xml, "ICMSTot") {
-        data.totais = parse_totals(&tot_block);
-    }
-
-    // -- transporte
-    if let Some(transp) = extract_block(xml, "transp") {
-        data.transporte = parse_transport(&transp);
-    }
-
-    // -- cobranca / fatura
-    if let Some(cobr) = extract_block(xml, "cobr") {
-        data.fatura = Some(parse_fatura(&cobr));
-    }
-
-    // -- infAdic
+    if let Some(tot_block) = extract_block(xml, "ICMSTot") { data.totais = parse_totals(&tot_block); }
+    if let Some(transp) = extract_block(xml, "transp") { data.transporte = parse_transport(&transp); }
+    if let Some(cobr) = extract_block(xml, "cobr") { data.fatura = Some(parse_fatura(&cobr)); }
     if let Some(inf) = extract_block(xml, "infAdic") {
         data.info_adicional.inf_cpl = extract_tag_content(&inf, "infCpl").unwrap_or_default();
         data.info_adicional.inf_fisco = extract_tag_content(&inf, "infAdFisco").unwrap_or_default();
     }
-
-    // -- protocolo
     if let Some(prot_block) = extract_block(xml, "infProt") {
         let nprot = extract_tag_content(&prot_block, "nProt").unwrap_or_default();
         let dh = extract_tag_content(&prot_block, "dhRecbto").unwrap_or_default();
         data.protocolo = format!("{} - {}", nprot, dh);
     }
-
     Ok(data)
 }
 
@@ -1087,7 +537,6 @@ fn parse_address(xml: &str) -> NfeAddress {
         fone: extract_tag_content(xml, "fone").unwrap_or_default(),
     }
 }
-
 fn parse_totals(xml: &str) -> NfeTotais {
     NfeTotais {
         bc_icms: extract_tag_content(xml, "vBC").unwrap_or_default(),
@@ -1106,17 +555,11 @@ fn parse_totals(xml: &str) -> NfeTotais {
         v_tot_trib: extract_tag_content(xml, "vTotTrib").unwrap_or_default(),
     }
 }
-
 fn parse_transport(xml: &str) -> NfeTransporte {
-    let mut t = NfeTransporte {
-        mod_frete: extract_tag_content(xml, "modFrete").unwrap_or_default(),
-        ..Default::default()
-    };
+    let mut t = NfeTransporte { mod_frete: extract_tag_content(xml, "modFrete").unwrap_or_default(), ..Default::default() };
     if let Some(transporta) = extract_block(xml, "transporta") {
         t.transportadora.name = extract_tag_content(&transporta, "xNome").unwrap_or_default();
-        t.transportadora.cnpj_cpf = extract_tag_content(&transporta, "CNPJ")
-            .or_else(|| extract_tag_content(&transporta, "CPF"))
-            .unwrap_or_default();
+        t.transportadora.cnpj_cpf = extract_tag_content(&transporta, "CNPJ").or_else(|| extract_tag_content(&transporta, "CPF")).unwrap_or_default();
         t.transportadora.ie = extract_tag_content(&transporta, "IE").unwrap_or_default();
         t.transportadora.address.logradouro = extract_tag_content(&transporta, "xEnder").unwrap_or_default();
         t.transportadora.address.municipio = extract_tag_content(&transporta, "xMun").unwrap_or_default();
@@ -1137,11 +580,8 @@ fn parse_transport(xml: &str) -> NfeTransporte {
     }
     t
 }
-
 fn parse_fatura(xml: &str) -> NfeFatura {
-    let mut f = NfeFatura {
-        duplicatas: Vec::new(),
-    };
+    let mut f = NfeFatura { duplicatas: Vec::new() };
     let mut search_from = 0;
     while let Some(dup_start) = xml[search_from..].find("<dup") {
         let abs_start = search_from + dup_start;
@@ -1153,49 +593,23 @@ fn parse_fatura(xml: &str) -> NfeFatura {
                 v_dup: extract_tag_content(dup_block, "vDup").unwrap_or_default(),
             });
             search_from = abs_start + dup_end + 6;
-        } else {
-            break;
-        }
+        } else { break; }
     }
     f
 }
-
 fn parse_products(xml: &str) -> Vec<NfeProduto> {
     let mut products = Vec::new();
     let mut search_from = 0;
     let mut item_num = 1u32;
-
     while let Some(det_start) = xml[search_from..].find("<det ") {
         let abs_start = search_from + det_start;
-
         if let Some(det_end) = xml[abs_start..].find("</det>") {
             let det_block = &xml[abs_start..abs_start + det_end + 6];
-
-            // Extract nItem attribute
             let num = if let Some(nitem_pos) = det_block.find("nItem=\"") {
                 let s = nitem_pos + 7;
-                if let Some(end) = det_block[s..].find('"') {
-                    det_block[s..s + end].parse().unwrap_or(item_num)
-                } else {
-                    item_num
-                }
-            } else {
-                item_num
-            };
-
-            let mut prod = NfeProduto {
-                num,
-                code: String::new(),
-                description: String::new(),
-                ncm: String::new(),
-                cfop: String::new(),
-                unit: String::new(),
-                qty: String::new(),
-                unit_price: String::new(),
-                total: String::new(),
-                ..Default::default()
-            };
-
+                if let Some(end) = det_block[s..].find('"') { det_block[s..s + end].parse().unwrap_or(item_num) } else { item_num }
+            } else { item_num };
+            let mut prod = NfeProduto { num, ..Default::default() };
             if let Some(prod_block) = extract_block(det_block, "prod") {
                 prod.code = extract_tag_content(&prod_block, "cProd").unwrap_or_default();
                 prod.description = extract_tag_content(&prod_block, "xProd").unwrap_or_default();
@@ -1206,13 +620,10 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
                 prod.unit_price = extract_tag_content(&prod_block, "vUnCom").unwrap_or_default();
                 prod.total = extract_tag_content(&prod_block, "vProd").unwrap_or_default();
             }
-
             if let Some(imposto) = extract_block(det_block, "imposto") {
                 prod.v_tot_trib = extract_tag_content(&imposto, "vTotTrib").unwrap_or_default();
                 if let Some(icms) = extract_block(&imposto, "ICMS") {
-                    prod.cst = extract_tag_content(&icms, "CST")
-                        .or_else(|| extract_tag_content(&icms, "CSOSN"))
-                        .unwrap_or_default();
+                    prod.cst = extract_tag_content(&icms, "CST").or_else(|| extract_tag_content(&icms, "CSOSN")).unwrap_or_default();
                     prod.bc_icms = extract_tag_content(&icms, "vBC").unwrap_or_default();
                     prod.aliq_icms = extract_tag_content(&icms, "pICMS").unwrap_or_default();
                     prod.v_icms = extract_tag_content(&icms, "vICMS").unwrap_or_default();
@@ -1222,32 +633,22 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
                     prod.v_ipi = extract_tag_content(&ipi, "vIPI").unwrap_or_default();
                 }
             }
-
             products.push(prod);
             search_from = abs_start + det_end + 6;
             item_num += 1;
-        } else {
-            break;
-        }
+        } else { break; }
     }
-
     products
 }
 
 // ── DANFE HTML Generator ───────────────────────────────────────
 
 fn generate_danfe_html(data: &NfeData) -> String {
-    let chave_formatada = data
-        .chave
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(4)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join(" ");
-
+    let chave_formatada = data.chave.chars().collect::<Vec<_>>().chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" ");
     let cnpj_emit = format_cnpj_cpf(&data.emitente.cnpj_cpf);
     let cnpj_dest = format_cnpj_cpf(&data.destinatario.cnpj_cpf);
+    
+    // Agora usados corretamente
     let cnpj_transp = format_cnpj_cpf(&data.transporte.transportadora.cnpj_cpf);
 
     let format_addr = |a: &NfeAddress| -> String {
@@ -1259,75 +660,77 @@ fn generate_danfe_html(data: &NfeData) -> String {
         if !a.fone.is_empty() { parts.push(format!("Fone: {}", a.fone)); }
         parts.join(" - ")
     };
-
     let emit_addr = format_addr(&data.emitente.address);
     let dest_addr = format_addr(&data.destinatario.address);
+    
+    // Agora usado corretamente
     let transp_addr = format_addr(&data.transporte.transportadora.address);
 
     let fmt_date = |d: &str| -> String {
          if d.len() >= 10 {
             let parts: Vec<&str> = d[..10].split('-').collect();
-            if parts.len() == 3 {
-                return format!("{}/{}/{}", parts[2], parts[1], parts[0]);
-            }
+            if parts.len() == 3 { return format!("{}/{}/{}", parts[2], parts[1], parts[0]); }
          }
          d.to_string()
     };
-    
     let data_emissao_fmt = fmt_date(&data.data_emissao);
     let data_sai_ent_fmt = fmt_date(&data.data_saida_entrada);
 
-    let mut products_html = String::new();
+    // CSS Grid Robusto para DANFE
+    let css = r#"
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Libre+Barcode+128&display=swap');
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
+        body { margin: 0; padding: 20px; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; background: #555; display: flex; justify-content: center; }
+        .page { width: 210mm; min-height: 297mm; background: white; padding: 10mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); position: relative; }
+        .row { display: flex; width: 100%; }
+        .col { display: flex; flex-direction: column; border: 1px solid #000; margin-right: -1px; margin-bottom: -1px; padding: 2px 4px; }
+        .label { font-size: 7pt; font-weight: bold; text-transform: uppercase; color: #444; }
+        .content { font-size: 9pt; font-weight: normal; color: #000; min-height: 12px; }
+        .bold { font-weight: bold; }
+        .center { text-align: center; justify-content: center; align-items: center; }
+        .right { text-align: right; justify-content: center; }
+        .section-header { background: #eee; border: 1px solid #000; font-size: 8pt; font-weight: bold; text-transform: uppercase; padding: 2px; margin-bottom: -1px; margin-right: -1px; margin-top: 5px; }
+        
+        .box-canhoto { height: 25mm; display: flex; margin-bottom: 5px; }
+        .header-main { height: 35mm; display: flex; margin-bottom: 5px; }
+        .barcode { font-family: 'Libre Barcode 128', cursive; font-size: 42pt; text-align: center; overflow: hidden; white-space: nowrap; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 8pt; margin-top: -1px; }
+        th { border: 1px solid #000; background: #eee; font-weight: bold; padding: 2px; font-size: 7pt; }
+        td { border: 1px solid #000; padding: 2px; }
+        .t-right { text-align: right; }
+        .t-center { text-align: center; }
+        
+        @media print {
+            body { background: white; padding: 0; }
+            .page { width: 100%; height: auto; padding: 0; box-shadow: none; margin: 0; }
+            .no-print { display: none; }
+        }
+        
+        .w-10 { width: 10%; } .w-15 { width: 15%; } .w-20 { width: 20%; } 
+        .w-25 { width: 25%; } .w-30 { width: 30%; } .w-40 { width: 40%; } 
+        .w-50 { width: 50%; } .w-60 { width: 60%; } .flex-1 { flex: 1; }
+    </style>
+    "#;
+
+    let mut prods = String::new();
     for p in &data.produtos {
-        products_html.push_str(&format!(
+        prods.push_str(&format!(
             "<tr>
-                <td class='center'>{}</td>
-                <td>{}</td>
-                <td>{}</td>
-                <td class='center'>{}</td>
-                <td class='center'>{}</td>
-                <td class='center'>{}</td>
-                <td class='center'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
-                <td class='right'>{}</td>
+                <td class='t-center'>{}</td><td>{}</td><td class='t-center'>{}</td><td class='t-center'>{}</td>
+                <td class='t-center'>{}</td><td class='t-center'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td>
+                <td class='t-right'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td>
+                <td class='t-right'>{}</td><td class='t-right'>{}</td>
             </tr>",
-            p.code, p.description, p.ncm, p.cst, p.cfop, p.unit, p.qty, p.unit_price, p.total,
-            p.bc_icms, p.v_icms, p.v_ipi, p.aliq_icms, p.aliq_ipi
+            p.code, p.description, p.ncm, p.cst, p.cfop, p.unit, p.qty, p.unit_price, p.total, p.bc_icms, p.v_icms, p.v_ipi, p.aliq_icms, p.aliq_ipi
         ));
     }
 
     let barcode_script = r#"
     <script>
     (function() {
-        function barcode128c(k) {
-            var P=['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
-            var c=[105];
-            for(var i=0;i<k.length;i+=2)c.push(parseInt(k.substr(i,2)));
-            var s=c[0];for(var j=1;j<c.length;j++)s+=c[j]*j;
-            c.push(s%103);c.push(106);
-            var pat='';for(var m=0;m<c.length;m++)pat+=P[c[m]];
-            var cv=document.createElement('canvas');
-            var sc=2,tw=0;
-            for(var n=0;n<pat.length;n++)tw+=parseInt(pat[n]);
-            cv.width=(tw+20)*sc;cv.height=55;
-            var ctx=cv.getContext('2d');
-            ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
-            var x=10*sc;
-            for(var q=0;q<pat.length;q++){
-                var bw=parseInt(pat[q])*sc;
-                ctx.fillStyle=((q%2)==0)?'#000':'#fff';
-                ctx.fillRect(x,0,bw,cv.height);
-                x+=bw;
-            }
-            return cv.toDataURL();
-        }
-        var img = document.getElementById("barcode-img");
-        if (img) img.src = barcode128c(img.dataset.key);
+        // Fallback simples
     })();
     </script>
     "#;
@@ -1335,451 +738,211 @@ fn generate_danfe_html(data: &NfeData) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DANFE - NF-e {numero}</title>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: "Times New Roman", Times, serif; }}
-        body {{ background: #eee; padding: 20px 0; }}
-        .page {{ width: 210mm; background: #fff; margin: 0 auto; padding: 10mm; border: 1px solid #ccc; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
-        .box {{ border: 1px solid #000; margin-top: -1px; margin-left: -1px; position: relative; padding: 2px 4px; height: 100%; }}
-        .row {{ display: flex; }}
-        .col {{ display: flex; flex-direction: column; }}
-        .label {{ font-size: 9px; font-weight: bold; text-transform: uppercase; line-height: 1; margin-bottom: 2px; }}
-        .content {{ font-size: 11px; font-weight: normal; }}
-        .bold {{ font-weight: bold; }}
-        .center {{ text-align: center; justify-content: center; }}
-        .right {{ text-align: right; }}
-        .section-header {{ background: #eee; font-size: 10px; font-weight: bold; text-transform: uppercase; border: 1px solid #000; margin-top: 5px; margin-left: -1px; padding: 2px; }}
-        
-        /* Specific Layout Tweaks */
-        .canhoto {{ height: 26mm; margin-bottom: 5px; }}
-        .danfe-header {{ height: 38mm; }}
-        .barcode-box {{ display: flex; align-items: center; justify-content: center; padding: 5px; }}
-        .barcode-box img {{ max-width: 100%; height: 50px; }}
-        
-        table {{ width: 100%; border-collapse: collapse; font-size: 9px; }}
-        table th {{ border: 1px solid #000; padding: 2px; font-weight: bold; background: #eee; }}
-        table td {{ border: 1px solid #000; padding: 2px; }}
-        
-        @media print {{
-            body {{ background: #fff; padding: 0; }}
-            .page {{ margin: 0; padding: 5mm; border: none; box-shadow: none; width: 100%; }}
-        }}
-    </style>
-</head>
+<head><meta charset="UTF-8"><title>DANFE - {numero}</title>{css}</head>
 <body>
     <div class="page">
-        <!-- CANHOTO -->
-        <div class="row canhoto">
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Recebemos de {emit_nome} os produtos constantes na Nota Fiscal indicada ao lado</div>
-                     <div class="content center" style="margin-top: 10px">DATA DE RECEBIMENTO</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">&nbsp;</div>
-                     <div class="content center" style="margin-top: 10px">IDENTIFICA&Ccedil;&Atilde;O E ASSINATURA DO RECEBEDOR</div>
-                 </div>
-             </div>
-             <div class="col" style="width: 35mm">
-                 <div class="box center">
-                     <div class="label">NF-e</div>
-                     <div class="content bold" style="font-size: 14px">N&ordm; {numero}</div>
-                     <div class="content bold">S&Eacute;RIE {serie}</div>
-                 </div>
-             </div>
+        <div class="box-canhoto">
+            <div class="col flex-1"><div class="label">RECEBEMOS DE {emit_nome} OS PRODUTOS/SERVIÇOS CONSTANTES NA NOTA FISCAL INDICADA AO LADO</div><div class="content center" style="margin-top:auto">DATA DE RECEBIMENTO</div></div>
+            <div class="col flex-1"><div class="label">IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR</div><div class="content"></div></div>
+            <div class="col w-15 center"><div class="label">NF-e</div><div class="content bold" style="font-size:14pt">Nº {numero}</div><div class="label">SÉRIE {serie}</div></div>
         </div>
-        
-        <!-- HEADER -->
-        <div class="row danfe-header">
-            <div class="col" style="flex: 3.5">
-                <div class="box center">
-                    <div class="content bold" style="font-size: 14px">{emit_nome}</div>
-                    <div class="content" style="font-size: 10px; margin-top: 4px">{emit_addr}</div>
+
+        <div class="header-main">
+            <div class="col w-40 center">
+                <div class="content bold" style="font-size:12pt">{emit_nome}</div>
+                <div class="content" style="font-size:7pt">{emit_addr}</div>
+            </div>
+            <div class="col w-15 center">
+                <div class="content bold" style="font-size:18pt">DANFE</div>
+                <div class="label" style="text-align:center">Documento Auxiliar da Nota Fiscal Eletrônica</div>
+                <div class="row" style="border:none; width:100%; margin-top:5px">
+                    <div class="col flex-1 center" style="border:none"><div class="label">0 - Entrada<br>1 - Saída</div></div>
+                    <div class="col flex-1 center" style="border:1px solid #000"><div class="content bold" style="font-size:14pt">{tipo_nf}</div></div>
                 </div>
+                <div class="content bold" style="margin-top:2px">Nº {numero}</div>
+                <div class="content">SÉRIE {serie}</div>
             </div>
-            <div class="col" style="width: 30mm">
-                 <div class="box center">
-                     <div class="content bold" style="font-size: 24px">DANFE</div>
-                     <div class="label" style="font-size: 8px">Documento Auxiliar<br>da Nota Fiscal<br>Eletr&ocirc;nica</div>
-                     <div class="row" style="width: 100%; margin-top: 4px">
-                         <div class="col center" style="flex:1">
-                             <div class="label">0 - Entrada<br>1 - Saida</div>
-                         </div>
-                         <div class="col center" style="flex:1; border: 1px solid #000; margin: 2px">
-                             <div class="content bold" style="font-size: 16px">{tipo_nf}</div>
-                         </div>
-                     </div>
-                     <div class="content bold">N&ordm; {numero}</div>
-                     <div class="content bold">S&Eacute;RIE {serie}</div>
-                 </div>
-            </div>
-            <div class="col" style="flex: 4.5">
-                 <div class="box barcode-box">
-                    <img id="barcode-img" data-key="{chave}" alt="Codigo de Barras">
-                 </div>
-                 <div class="box">
-                     <div class="label">Chave de Acesso</div>
-                     <div class="content center bold" style="font-size: 11px">{chave}</div>
-                 </div>
-                 <div class="box">
-                     <div class="label">Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora</div>
-                 </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <div class="col" style="flex: 6">
-                 <div class="box">
-                     <div class="label">Natureza da Opera&ccedil;&atilde;o</div>
-                     <div class="content wrap">{nat_op}</div>
-                 </div>
-            </div>
-            <div class="col" style="flex: 4">
-                 <div class="box">
-                     <div class="label">Protocolo de Autoriza&ccedil;&atilde;o de Uso</div>
-                     <div class="content center">{protocolo}</div>
-                 </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
-                     <div class="content">{emit_ie}</div>
-                 </div>
-            </div>
-            <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Inscri&ccedil;&atilde;o Estadual do Subst. Trib.</div>
-                     <div class="content"></div>
-                 </div>
-            </div>
-            <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">CNPJ</div>
-                     <div class="content">{emit_cnpj}</div>
-                 </div>
+            <div class="col flex-1">
+                <div class="barcode">{chave}</div>
+                <div class="row" style="border:none">
+                   <div class="col flex-1" style="border:none"><div class="label">Chave de Acesso</div><div class="content center bold" style="font-size:10pt">{chave_fmt}</div></div>
+                </div>
+                <div class="row" style="border:none; border-top:1px solid #000">
+                    <div class="col flex-1 center" style="border:none; padding:4px">
+                        <div class="label">Consulta de autenticidade no portal nacional da NF-e<br>www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- DESTINATARIO -->
-        <div class="section-header">Destinat&aacute;rio / Remetente</div>
         <div class="row">
-             <div class="col" style="flex: 6">
-                 <div class="box">
-                     <div class="label">Nome / Raz&atilde;o Social</div>
-                     <div class="content">{dest_nome}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 2">
-                 <div class="box">
-                     <div class="label">CNPJ / CPF</div>
-                     <div class="content">{dest_cnpj}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1.5">
-                 <div class="box">
-                     <div class="label">Data da Emiss&atilde;o</div>
-                     <div class="content right">{data_emissao}</div>
-                 </div>
-             </div>
+            <div class="col w-60"><div class="label">NATUREZA DA OPERAÇÃO</div><div class="content">{nat_op}</div></div>
+            <div class="col flex-1"><div class="label">PROTOCOLO DE AUTORIZAÇÃO DE USO</div><div class="content">{protocolo}</div></div>
         </div>
         <div class="row">
-             <div class="col" style="flex: 5">
-                 <div class="box">
-                     <div class="label">Endere&ccedil;o</div>
-                     <div class="content">{dest_addr}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 3">
-                 <div class="box">
-                     <div class="label">Bairro / Distrito</div>
-                     <div class="content"></div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1.5">
-                 <div class="box">
-                     <div class="label">Data Sa&iacute;da/Entrada</div>
-                     <div class="content right">{data_sai_ent}</div>
-                 </div>
-             </div>
+            <div class="col flex-1"><div class="label">INSCRIÇÃO ESTADUAL</div><div class="content">{ie_emit}</div></div>
+            <div class="col flex-1"><div class="label">INSC. ESTADUAL SUBST. TRIB.</div><div class="content"></div></div>
+            <div class="col flex-1"><div class="label">CNPJ</div><div class="content">{cnpj_emit}</div></div>
         </div>
-         <div class="row">
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Munic&iacute;pio</div>
-                     <div class="content"></div>
-                 </div>
-             </div>
-             <div class="col" style="width: 20mm">
-                 <div class="box">
-                     <div class="label">Fone / Fax</div>
-                     <div class="content"></div>
-                 </div>
-             </div>
-             <div class="col" style="width: 15mm">
-                 <div class="box">
-                     <div class="label">UF</div>
-                     <div class="content"></div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 2">
-                 <div class="box">
-                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
-                     <div class="content">{dest_ie}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1.5">
-                 <div class="box">
-                     <div class="label">Hora Sa&iacute;da</div>
-                     <div class="content right">{hora_sai}</div>
-                 </div>
-             </div>
-        </div>
-        
-        <!-- IMPOSTO -->
-        <div class="section-header">C&aacute;lculo do Imposto</div>
+
+        <div class="section-header">Destinatário / Remetente</div>
         <div class="row">
-             <div class="col" style="flex:1"><div class="box"><div class="label">Base de C&aacute;lculo do ICMS</div><div class="content right">{bc_icms}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do ICMS</div><div class="content right">{icms}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Base de C&aacute;lculo do ICMS ST</div><div class="content right">{bc_icms_st}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do ICMS ST</div><div class="content right">{icms_st}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor Total dos Produtos</div><div class="content right">{total_products}</div></div></div>
+            <div class="col w-60"><div class="label">NOME / RAZÃO SOCIAL</div><div class="content">{dest_nome}</div></div>
+            <div class="col w-25"><div class="label">CNPJ / CPF</div><div class="content">{dest_cnpj}</div></div>
+            <div class="col flex-1"><div class="label">DATA DA EMISSÃO</div><div class="content right">{dt_emi}</div></div>
         </div>
         <div class="row">
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do Frete</div><div class="content right">{freight}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do Seguro</div><div class="content right">{insurance}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Desconto</div><div class="content right">{discount}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Outras Despesas Acess.</div><div class="content right">{other}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor do IPI</div><div class="content right">{ipi}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Valor Total da Nota</div><div class="content right bold">{total_nfe}</div></div></div>
+            <div class="col w-50"><div class="label">ENDEREÇO</div><div class="content">{dest_addr}</div></div>
+            <div class="col w-20"><div class="label">BAIRRO / DISTRITO</div><div class="content"></div></div>
+            <div class="col w-15"><div class="label">CEP</div><div class="content"></div></div>
+            <div class="col flex-1"><div class="label">DATA SAÍDA/ENTRADA</div><div class="content right">{dt_sai}</div></div>
         </div>
-        
-        <!-- TRANSPORTADOR -->
+
+        <div class="section-header">Cálculo do Imposto</div>
+        <div class="row">
+            <div class="col flex-1"><div class="label">BASE CÁLC. ICMS</div><div class="content right">{bc_icms}</div></div>
+            <div class="col flex-1"><div class="label">VALOR ICMS</div><div class="content right">{v_icms}</div></div>
+            <div class="col flex-1"><div class="label">BASE CÁLC. ICMS ST</div><div class="content right">{bc_st}</div></div>
+            <div class="col flex-1"><div class="label">VALOR ICMS ST</div><div class="content right">{v_st}</div></div>
+            <div class="col flex-1"><div class="label">VALOR TOTAL PRODUTOS</div><div class="content right">{v_prod}</div></div>
+        </div>
+        <div class="row">
+            <div class="col flex-1"><div class="label">VALOR FRETE</div><div class="content right">{frete}</div></div>
+            <div class="col flex-1"><div class="label">VALOR SEGURO</div><div class="content right">{seg}</div></div>
+            <div class="col flex-1"><div class="label">DESCONTO</div><div class="content right">{desc}</div></div>
+            <div class="col flex-1"><div class="label">OUTRAS DESPESAS</div><div class="content right">{outros}</div></div>
+            <div class="col flex-1"><div class="label">VALOR IPI</div><div class="content right">{ipi}</div></div>
+            <div class="col flex-1"><div class="label">VALOR TOTAL NOTA</div><div class="content right bold">{v_nf}</div></div>
+        </div>
+
         <div class="section-header">Transportador / Volumes Transportados</div>
         <div class="row">
-             <div class="col" style="flex: 4">
-                 <div class="box">
-                     <div class="label">Raz&atilde;o Social</div>
-                     <div class="content">{transp_nome}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Frete por Conta</div>
-                     <div class="content">{mod_frete}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">C&oacute;digo ANTT</div>
-                     <div class="content">{rntrc}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Placa do Ve&iacute;culo</div>
-                     <div class="content">{placa}</div>
-                 </div>
-             </div>
-             <div class="col" style="width: 15mm">
-                 <div class="box">
-                     <div class="label">UF</div>
-                     <div class="content">{veic_uf}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 2">
-                 <div class="box">
-                     <div class="label">CNPJ / CPF</div>
-                     <div class="content">{transp_cnpj}</div>
-                 </div>
-             </div>
+            <div class="col w-40"><div class="label">RAZÃO SOCIAL</div><div class="content">{transp_nome}</div></div>
+            <div class="col w-15"><div class="label">FRETE POR CONTA</div><div class="content center">{mod_frete}</div></div>
+            <div class="col w-15"><div class="label">CÓDIGO ANTT</div><div class="content center">{rntrc}</div></div>
+            <div class="col w-15"><div class="label">PLACA DO VEÍCULO</div><div class="content center">{placa}</div></div>
+            <div class="col w-10"><div class="label">UF</div><div class="content center">{uf_veic}</div></div>
+            <div class="col flex-1"><div class="label">CNPJ/CPF</div><div class="content center">{cnpj_transp}</div></div>
         </div>
         <div class="row">
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Endere&ccedil;o</div>
-                     <div class="content">{transp_addr}</div>
-                 </div>
-             </div>
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Munic&iacute;pio</div>
-                     <div class="content">{transp_mun}</div>
-                 </div>
-             </div>
-              <div class="col" style="width: 15mm">
-                 <div class="box">
-                     <div class="label">UF</div>
-                     <div class="content">{transp_uf}</div>
-                 </div>
-             </div>
-              <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Inscri&ccedil;&atilde;o Estadual</div>
-                     <div class="content">{transp_ie}</div>
-                 </div>
-             </div>
+            <div class="col w-40"><div class="label">ENDEREÇO</div><div class="content">{transp_addr}</div></div>
+            <div class="col w-40"><div class="label">MUNICÍPIO</div><div class="content">{transp_mun}</div></div>
+            <div class="col w-10"><div class="label">UF</div><div class="content center">{transp_uf}</div></div>
+            <div class="col flex-1"><div class="label">INSCRIÇÃO ESTADUAL</div><div class="content center">{transp_ie}</div></div>
         </div>
         <div class="row">
-             <div class="col" style="flex:1"><div class="box"><div class="label">Quantidade</div><div class="content right">{qvol}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Esp&eacute;cie</div><div class="content">{esp}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Marca</div><div class="content">{marca}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Numera&ccedil;&atilde;o</div><div class="content">{nvol}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Peso Bruto</div><div class="content right">{peso_b}</div></div></div>
-             <div class="col" style="flex:1"><div class="box"><div class="label">Peso L&iacute;quido</div><div class="content right">{peso_l}</div></div></div>
+            <div class="col w-10"><div class="label">QUANTIDADE</div><div class="content center">{qvol}</div></div>
+            <div class="col w-20"><div class="label">ESPÉCIE</div><div class="content">{esp}</div></div>
+            <div class="col w-20"><div class="label">MARCA</div><div class="content">{marca}</div></div>
+            <div class="col w-20"><div class="label">NUMERAÇÃO</div><div class="content">{nvol}</div></div>
+            <div class="col w-15"><div class="label">PESO BRUTO</div><div class="content right">{peso_b}</div></div>
+            <div class="col flex-1"><div class="label">PESO LÍQUIDO</div><div class="content right">{peso_l}</div></div>
         </div>
-        
-        <!-- PRODUTOS -->
-        <div class="section-header">Dados do Produto / Servi&ccedil;o</div>
-        <div class="row">
+
+        <div class="section-header">Dados do Produto / Serviço</div>
+        <div class="row" style="display:block">
             <table>
-                 <thead>
+                <thead>
                     <tr>
-                        <th>C&oacute;digo</th>
-                        <th>Descri&ccedil;&atilde;o</th>
-                        <th>NCM</th>
-                        <th>CST</th>
-                        <th>CFOP</th>
-                        <th>Unid.</th>
-                        <th>Qtd.</th>
-                        <th>Vlr. Unit.</th>
-                        <th>Vlr. Total</th>
-                        <th>BC ICMS</th>
-                        <th>Vlr. ICMS</th>
-                        <th>Vlr. IPI</th>
-                        <th>% ICMS</th>
-                        <th>% IPI</th>
+                        <th>CÓD</th><th>DESCRIÇÃO</th><th>NCM</th><th>CST</th><th>CFOP</th><th>UNID</th><th>QTD</th>
+                        <th>V.UNIT</th><th>V.TOTAL</th><th>BC.ICMS</th><th>V.ICMS</th><th>V.IPI</th><th>%ICMS</th><th>%IPI</th>
                     </tr>
-                 </thead>
-                 <tbody>
+                </thead>
+                <tbody>
                     {products}
-                 </tbody>
+                </tbody>
             </table>
         </div>
         
-        <!-- DADOS ADICIONAIS -->
-        <div class="section-header">Dados Adicionais</div>
-        <div class="row" style="height: 30mm">
-             <div class="col" style="flex: 1">
-                 <div class="box">
-                     <div class="label">Informa&ccedil;&otilde;es Complementares</div>
-                     <div class="content">{inf_cpl}</div>
-                 </div>
-             </div>
-             <div class="col" style="width: 80mm">
-                 <div class="box">
-                     <div class="label">Reservado ao Fisco</div>
-                     <div class="content">{inf_fisco}</div>
-                 </div>
-             </div>
+        <div class="row" style="margin-top:10px; border:none">
+           <div class="col flex-1" style="border:none">
+              <div class="label">INFORMAÇÕES COMPLEMENTARES</div>
+              <div class="content" style="border:1px solid #000; padding:5px; min-height:60px; font-size:8pt">{inf_cpl}</div>
+           </div>
         </div>
-        
-        <div class="center" style="margin-top: 10px; font-size: 10px; color: #999">
-             Gerado pelo Util Hub
+        <div class="center no-print" style="margin-top:20px">
+            <button onclick="window.print()" style="padding:10px 20px; font-size:14pt; cursor:pointer">IMPRIMIR DANFE</button>
         </div>
     </div>
     {scripts}
 </body>
-</html>"#,
+</html>
+"#,
+        css = css,
         numero = data.numero,
         serie = data.serie,
-        data_emissao = data_emissao_fmt,
-        data_sai_ent = data_sai_ent_fmt,
-        hora_sai = data.hora_saida_entrada,
-        chave = chave_formatada,
-        protocolo = data.protocolo,
-        nat_op = data.nat_op,
         tipo_nf = data.tipo_nf,
+        chave = data.chave, 
+        chave_fmt = chave_formatada,
         emit_nome = data.emitente.name,
-        emit_cnpj = cnpj_emit,
-        emit_ie = data.emitente.ie,
         emit_addr = emit_addr,
+        cnpj_emit = cnpj_emit,
+        ie_emit = data.emitente.ie,
         dest_nome = data.destinatario.name,
         dest_cnpj = cnpj_dest,
-        dest_ie = data.destinatario.ie,
+        dt_emi = data_emissao_fmt,
+        dt_sai = data_sai_ent_fmt,
         dest_addr = dest_addr,
-        
+        nat_op = data.nat_op,
+        protocolo = data.protocolo,
         bc_icms = data.totais.bc_icms,
-        icms = data.totais.icms,
-        bc_icms_st = data.totais.bc_icms_st,
-        icms_st = data.totais.icms_st,
-        freight = data.totais.freight,
-        insurance = data.totais.insurance,
-        discount = data.totais.discount,
-        other = data.totais.other,
+        v_icms = data.totais.icms,
+        bc_st = data.totais.bc_icms_st,
+        v_st = data.totais.icms_st,
+        v_prod = data.totais.total_products,
+        frete = data.totais.freight,
+        seg = data.totais.insurance,
+        desc = data.totais.discount,
+        outros = data.totais.other,
         ipi = data.totais.ipi,
-        total_products = data.totais.total_products,
-        total_nfe = data.totais.total_nfe,
+        v_nf = data.totais.total_nfe,
         
+        // Blocos Transportador adicionados
         transp_nome = data.transporte.transportadora.name,
-        transp_cnpj = cnpj_transp,
-        transp_ie = data.transporte.transportadora.ie,
+        mod_frete = data.transporte.mod_frete,
+        rntrc = data.transporte.veiculo_rntrc,
+        placa = data.transporte.veiculo_placa,
+        uf_veic = data.transporte.veiculo_uf,
+        cnpj_transp = cnpj_transp,
         transp_addr = transp_addr,
         transp_mun = data.transporte.transportadora.address.municipio,
         transp_uf = data.transporte.transportadora.address.uf,
-        mod_frete = data.transporte.mod_frete,
-        placa = data.transporte.veiculo_placa,
-        veic_uf = data.transporte.veiculo_uf,
-        rntrc = data.transporte.veiculo_rntrc,
+        transp_ie = data.transporte.transportadora.ie,
         qvol = data.transporte.vol_qvol,
         esp = data.transporte.vol_esp,
         marca = data.transporte.vol_marca,
         nvol = data.transporte.vol_nvol,
         peso_b = data.transporte.vol_peso_b,
         peso_l = data.transporte.vol_peso_l,
-        
+
         inf_cpl = data.info_adicional.inf_cpl,
-        inf_fisco = data.info_adicional.inf_fisco,
-        
-        products = products_html,
+        products = prods,
         scripts = barcode_script
     )
 }
 
 fn format_cnpj_cpf(value: &str) -> String {
-    if value.len() == 14 {
-        format!(
-            "{}.{}.{}/{}-{}",
-            &value[0..2],
-            &value[2..5],
-            &value[5..8],
-            &value[8..12],
-            &value[12..14]
-        )
-    } else if value.len() == 11 {
-        format!(
-            "{}.{}.{}-{}",
-            &value[0..3],
-            &value[3..6],
-            &value[6..9],
-            &value[9..11]
-        )
-    } else {
-        value.to_string()
-    }
+    if value.len() == 14 { format!("{}.{}.{}/{}-{}", &value[0..2], &value[2..5], &value[5..8], &value[8..12], &value[12..14]) }
+    else if value.len() == 11 { format!("{}.{}.{}-{}", &value[0..3], &value[3..6], &value[6..9], &value[9..11]) }
+    else { value.to_string() }
 }
 
-// ── Save HTML to Temp ────────────────────────────────────────────
+// ── Save HTML/XML to Temp ────────────────────────────────────────
 
-fn save_html_to_temp(html: &str) -> Result<String, String> {
-    use std::io::Write;
+fn save_files_to_temp(html: &str, raw_xml: &str, access_key: &str) -> Result<String, String> {
     use rand::Rng;
-
     let random: u64 = rand::thread_rng().gen();
-    let filename = format!("danfe_{}.html", random);
-    let path = std::env::temp_dir().join(filename);
+    let temp_dir = std::env::temp_dir();
+    
+    let xml_filename = format!("danfe_{}_{}.xml", access_key, random);
+    let xml_path = temp_dir.join(xml_filename);
+    let mut xml_file = std::fs::File::create(&xml_path).map_err(|e| format!("Erro ao criar XML: {}", e))?;
+    xml_file.write_all(raw_xml.as_bytes()).map_err(|e| format!("Erro ao escrever XML: {}", e))?;
 
-    let mut file = std::fs::File::create(&path)
-        .map_err(|e| format!("Falha ao criar arquivo DANFE: {}", e))?;
-    file.write_all(html.as_bytes())
-        .map_err(|e| format!("Falha ao escrever arquivo DANFE: {}", e))?;
+    let html_filename = format!("danfe_{}_{}.html", access_key, random);
+    let html_path = temp_dir.join(html_filename);
+    let mut html_file = std::fs::File::create(&html_path).map_err(|e| format!("Erro ao criar HTML: {}", e))?;
+    html_file.write_all(html.as_bytes()).map_err(|e| format!("Erro ao escrever HTML: {}", e))?;
 
-    Ok(path.to_string_lossy().to_string())
+    Ok(html_path.to_string_lossy().to_string())
 }

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
+// ... (UF_NAMES, formatCnpj, parseAccessKey mantidos iguais) ...
 // UF map for display from access key
 const UF_NAMES: Record<string, string> = {
   "11": "RO",
@@ -68,12 +69,11 @@ export function NfeQuery() {
   const [accessKeyRaw, setAccessKeyRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
-  const [method, setMethod] = useState<"portal" | "cert">("portal");
+  const [method, setMethod] = useState<"portal" | "cert">("cert"); // Padrão alterado para Cert (Melhor experiência)
   const [certs, setCerts] = useState<CertInfo[]>([]);
   const [selectedCert, setSelectedCert] = useState<string>("");
   const [loadingCerts, setLoadingCerts] = useState(false);
 
-  // Sanitize: strip all non-digit characters
   const accessKey = accessKeyRaw.replace(/\D/g, "").slice(0, 44);
   const parsed = parseAccessKey(accessKey);
   const isValid = accessKey.length === 44;
@@ -130,19 +130,7 @@ export function NfeQuery() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Method Toggle */}
       <div className="px-4 pt-3 pb-3 flex gap-2 border-b border-gray-800">
-        <button
-          onClick={() => setMethod("portal")}
-          className={cn(
-            "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
-            method === "portal"
-              ? "bg-indigo-600 text-white"
-              : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
-          )}
-        >
-          Portal (Captcha)
-        </button>
         <button
           onClick={() => setMethod("cert")}
           className={cn(
@@ -152,13 +140,22 @@ export function NfeQuery() {
               : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
           )}
         >
-          Via Certificado
+          Via Certificado (Completa)
+        </button>
+        <button
+          onClick={() => setMethod("portal")}
+          className={cn(
+            "flex-1 py-1.5 text-xs font-medium rounded-md transition-colors",
+            method === "portal"
+              ? "bg-indigo-600 text-white"
+              : "text-gray-400 hover:text-gray-200 hover:bg-gray-800",
+          )}
+        >
+          Portal Captcha (Resumo)
         </button>
       </div>
 
-      {/* Content */}
       <main className="flex-1 overflow-y-auto px-4 py-2 space-y-3">
-        {/* Access key input */}
         <div>
           <label className="block text-xs text-gray-500 mb-1">
             Chave de Acesso
@@ -168,21 +165,15 @@ export function NfeQuery() {
             type="text"
             value={accessKeyRaw}
             onChange={(e) => setAccessKeyRaw(e.target.value)}
-            placeholder="Cole a chave de acesso (aceita pontos, traços, barras)"
+            placeholder="Cole a chave de acesso"
             className={cn(
               inputClass,
               "font-mono text-xs tracking-wider",
               accessKey.length === 44 && "ring-1 ring-emerald-500/30",
             )}
           />
-          {accessKeyRaw !== accessKey && accessKeyRaw.length > 0 && (
-            <p className="mt-1 text-xs text-gray-600">
-              Caracteres especiais removidos automaticamente
-            </p>
-          )}
         </div>
 
-        {/* Certificate Select */}
         {method === "cert" && (
           <div>
             <label className="block text-xs text-gray-500 mb-1">
@@ -220,13 +211,24 @@ export function NfeQuery() {
                 </div>
               )}
             </div>
-            <p className="mt-1 text-[10px] text-gray-600">
-              O certificado é necessário para baixar o XML completo da nota.
+            <p className="mt-1 text-[10px] text-emerald-400/80">
+              * Gera DANFE oficial com todos os itens e salva o XML.
             </p>
           </div>
         )}
 
-        {/* Parsed access key preview */}
+        {/* Info adicional para o Portal */}
+        {method === "portal" && (
+          <div className="p-2.5 rounded-lg bg-yellow-900/20 border border-yellow-800/30">
+            <p className="text-xs text-yellow-500">
+              Atenção: A consulta via Portal retorna apenas o{" "}
+              <strong>Resumo da Nota</strong> (sem produtos) devido a restrições
+              da SEFAZ para acesso sem login. Para a DANFE completa, use o
+              Certificado.
+            </p>
+          </div>
+        )}
+
         {parsed && (
           <div className="p-2.5 rounded-lg bg-gray-800/50 border border-gray-700/50">
             <p className="text-xs text-gray-500 uppercase font-medium mb-1.5">
@@ -238,7 +240,7 @@ export function NfeQuery() {
                 <span className="text-gray-300">{parsed.uf}</span>
               </div>
               <div>
-                <span className="text-gray-500">Mes/Ano:</span>{" "}
+                <span className="text-gray-500">Data:</span>{" "}
                 <span className="text-gray-300">{parsed.date}</span>
               </div>
               <div>
@@ -246,14 +248,13 @@ export function NfeQuery() {
                 <span className="text-gray-300">{parsed.number}</span>
               </div>
               <div className="col-span-3">
-                <span className="text-gray-500">CNPJ Emitente:</span>{" "}
+                <span className="text-gray-500">Emitente:</span>{" "}
                 <span className="text-gray-300 font-mono">{parsed.cnpj}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Action button */}
         <button
           onClick={handleQuery}
           disabled={!isValid}
@@ -265,39 +266,14 @@ export function NfeQuery() {
           )}
         >
           <FileSearch className="w-4 h-4" />
-          Consultar NF-e
+          {method === "cert" ? "Gerar DANFE Completa" : "Consultar Resumo"}
         </button>
 
-        {/* Success: consultation window opened */}
-        {opened && (
-          <div className="p-3 rounded-lg bg-emerald-900/20 border border-emerald-800/50 text-emerald-400 text-sm space-y-2">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 flex-shrink-0" />
-              Janela de consulta aberta
-            </div>
-            <p className="text-xs text-emerald-500/80 pl-6">
-              Resolva o captcha na janela do SEFAZ para visualizar a NF-e.
-              Utilize o botao Imprimir na parte inferior da janela.
-            </p>
-          </div>
-        )}
-
-        {/* Error */}
         {error && (
           <div className="p-3 rounded-lg bg-red-900/20 border border-red-800/50 text-red-400 text-sm">
             {error}
           </div>
         )}
-
-        {/* Info note */}
-        <div className="p-2.5 rounded-lg bg-gray-800/30 border border-gray-700/30 flex items-start gap-2">
-          <ExternalLink className="w-3.5 h-3.5 text-gray-600 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-gray-600">
-            A consulta abre o portal da SEFAZ com captcha. A chave de acesso
-            sera preenchida automaticamente. Apos resolver o captcha, os dados
-            da NF-e serao exibidos com opcao de impressao.
-          </p>
-        </div>
       </main>
     </div>
   );
