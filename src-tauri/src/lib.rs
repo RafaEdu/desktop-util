@@ -34,6 +34,72 @@ fn get_certificates() -> Result<Vec<CertInfo>, String> {
     certs_impl()
 }
 
+// NOVO COMANDO: Excluir certificados
+#[tauri::command]
+fn delete_certificates(thumbprints: Vec<String>) -> Result<(), String> {
+    delete_certs_impl(thumbprints)
+}
+
+#[cfg(windows)]
+fn delete_certs_impl(thumbprints: Vec<String>) -> Result<(), String> {
+    use windows_sys::Win32::Security::Cryptography::*;
+    use std::ptr;
+
+    let store_wide: Vec<u16> = "MY\0".encode_utf16().collect();
+
+    unsafe {
+        // Abre o store com permissão padrão (que permite exclusão no repositório do usuário)
+        let store = CertOpenSystemStoreW(0, store_wide.as_ptr());
+        if store.is_null() {
+            return Err("Falha ao abrir repositório de certificados".into());
+        }
+
+        for thumb_str in thumbprints {
+            // Remove os dois pontos da string (ex: "AA:BB" -> "AABB") e converte para bytes
+            let clean_hex = thumb_str.replace(":", "");
+            let mut hash_bytes = match hex::decode(&clean_hex) {
+                Ok(b) => b,
+                Err(_) => continue, // Se o hash for inválido, pula
+            };
+
+            let blob = CRYPT_INTEGER_BLOB {
+                cbData: hash_bytes.len() as u32,
+                pbData: hash_bytes.as_mut_ptr(),
+            };
+
+            // Busca o certificado pelo Hash SHA1
+            let cert_ctx = CertFindCertificateInStore(
+                store,
+                X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                0,
+                CERT_FIND_SHA1_HASH,
+                &blob as *const _ as *const _,
+                ptr::null(),
+            );
+
+            if !cert_ctx.is_null() {
+                // Tenta deletar. Nota: CertDeleteCertificateFromStore libera o contexto cert_ctx,
+                // então não precisamos chamar CertFreeCertificateContext aqui se der certo.
+                let result = CertDeleteCertificateFromStore(cert_ctx);
+                if result == 0 {
+                    // Se falhar deletar, libera o contexto manualmente para evitar leak
+                    CertFreeCertificateContext(cert_ctx);
+                }
+            }
+        }
+
+        CertCloseStore(store, 0);
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn delete_certs_impl(_thumbprints: Vec<String>) -> Result<(), String> {
+    Err("Exclusão de certificados disponível apenas no Windows".into())
+}
+
+
 #[cfg(windows)]
 fn certs_impl() -> Result<Vec<CertInfo>, String> {
     use windows_sys::Win32::Security::Cryptography::*;
@@ -285,6 +351,7 @@ fn open_link_incognito_impl(url: &str) -> Result<(), String> {
             .is_ok()
     }
 
+    // ... (restante da implementação existente de incognito)
     fn parse_reg_value(stdout: &str, value_name: &str) -> Option<String> {
         stdout
             .lines()
@@ -485,6 +552,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_movable_mode,
             get_certificates,
+            delete_certificates,
             start_screen_capture,
             open_external_link,
             nfe::query_nfe,
@@ -556,6 +624,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         // ── System Tray Setup ────────────────────────────────────
         .setup(|app| {
+            // ... (setup existente)
             // Menu items
             let show_hide = MenuItemBuilder::with_id("toggle", "Mostrar/Ocultar")
                 .build(app)?;
@@ -639,7 +708,7 @@ pub fn run() {
 
             Ok(())
         })
-        // ── Prevent close → hide instead ─────────────────────────
+        // ... (restante do código existente)
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
