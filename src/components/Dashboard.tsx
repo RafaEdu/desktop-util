@@ -9,10 +9,13 @@ import {
   FileStack,
   ListTodo,
   Timer as TimerIcon,
+  MessageSquareText, // Novo ícone
+  ClipboardList, // Novo ícone
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
 
+// Adicionadas as novas views: 'snippets' e 'clipboard'
 type View =
   | "dashboard"
   | "tools"
@@ -22,7 +25,9 @@ type View =
   | "certificates"
   | "status"
   | "nfe"
-  | "pdf";
+  | "pdf"
+  | "snippets"
+  | "clipboard";
 
 interface DashboardCard {
   id: string;
@@ -69,6 +74,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     }
   };
 
+  // Adicionado cards para "Textos Prontos" e "Histórico (Win+V)"
   const cards: DashboardCard[] = [
     {
       id: "tasks",
@@ -76,6 +82,20 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       description: "Gerenciar tarefas",
       icon: ListTodo,
       view: "tasks",
+    },
+    {
+      id: "snippets",
+      title: "Textos Prontos",
+      description: "Copiar respostas rápidas",
+      icon: MessageSquareText,
+      view: "snippets",
+    },
+    {
+      id: "clipboard",
+      title: "Histórico (Win+V)",
+      description: "Gerenciar área de transferência",
+      icon: ClipboardList,
+      view: "clipboard",
     },
     {
       id: "timer",

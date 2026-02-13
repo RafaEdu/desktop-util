@@ -8,6 +8,7 @@ use tauri::{
     Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_clipboard_manager;
 
 // ── Managed State ───────────────────────────────────────────────
 struct AppState {
@@ -42,8 +43,8 @@ fn delete_certificates(thumbprints: Vec<String>) -> Result<(), String> {
 
 #[cfg(windows)]
 fn delete_certs_impl(thumbprints: Vec<String>) -> Result<(), String> {
-    use windows_sys::Win32::Security::Cryptography::*;
     use std::ptr;
+    use windows_sys::Win32::Security::Cryptography::*;
 
     let store_wide: Vec<u16> = "MY\0".encode_utf16().collect();
 
@@ -98,7 +99,6 @@ fn delete_certs_impl(thumbprints: Vec<String>) -> Result<(), String> {
 fn delete_certs_impl(_thumbprints: Vec<String>) -> Result<(), String> {
     Err("Exclusão de certificados disponível apenas no Windows".into())
 }
-
 
 #[cfg(windows)]
 fn certs_impl() -> Result<Vec<CertInfo>, String> {
@@ -459,24 +459,74 @@ fn open_link_incognito_impl(url: &str) -> Result<(), String> {
     }
 
     let env_candidates = [
-        ("PROGRAMFILES", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
-        ("PROGRAMFILES(X86)", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
-        ("LOCALAPPDATA", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
-        ("PROGRAMFILES", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
-        ("PROGRAMFILES(X86)", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
-        ("LOCALAPPDATA", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
-        ("PROGRAMFILES", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
-        ("PROGRAMFILES(X86)", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
-        ("LOCALAPPDATA", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
-        ("PROGRAMFILES", "Mozilla Firefox\\firefox.exe", "--private-window"),
-        ("PROGRAMFILES(X86)", "Mozilla Firefox\\firefox.exe", "--private-window"),
-        ("LOCALAPPDATA", "Mozilla Firefox\\firefox.exe", "--private-window"),
+        (
+            "PROGRAMFILES",
+            "Microsoft\\Edge\\Application\\msedge.exe",
+            "--inprivate",
+        ),
+        (
+            "PROGRAMFILES(X86)",
+            "Microsoft\\Edge\\Application\\msedge.exe",
+            "--inprivate",
+        ),
+        (
+            "LOCALAPPDATA",
+            "Microsoft\\Edge\\Application\\msedge.exe",
+            "--inprivate",
+        ),
+        (
+            "PROGRAMFILES",
+            "Google\\Chrome\\Application\\chrome.exe",
+            "--incognito",
+        ),
+        (
+            "PROGRAMFILES(X86)",
+            "Google\\Chrome\\Application\\chrome.exe",
+            "--incognito",
+        ),
+        (
+            "LOCALAPPDATA",
+            "Google\\Chrome\\Application\\chrome.exe",
+            "--incognito",
+        ),
+        (
+            "PROGRAMFILES",
+            "BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+            "--incognito",
+        ),
+        (
+            "PROGRAMFILES(X86)",
+            "BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+            "--incognito",
+        ),
+        (
+            "LOCALAPPDATA",
+            "BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+            "--incognito",
+        ),
+        (
+            "PROGRAMFILES",
+            "Mozilla Firefox\\firefox.exe",
+            "--private-window",
+        ),
+        (
+            "PROGRAMFILES(X86)",
+            "Mozilla Firefox\\firefox.exe",
+            "--private-window",
+        ),
+        (
+            "LOCALAPPDATA",
+            "Mozilla Firefox\\firefox.exe",
+            "--private-window",
+        ),
     ];
 
     for (env_var, relative_path, flag) in env_candidates {
         if let Ok(base) = std::env::var(env_var) {
             let browser_path = std::path::Path::new(&base).join(relative_path);
-            if browser_path.exists() && spawn_private(browser_path.to_string_lossy().as_ref(), flag, url) {
+            if browser_path.exists()
+                && spawn_private(browser_path.to_string_lossy().as_ref(), flag, url)
+            {
                 return Ok(());
             }
         }
@@ -546,6 +596,7 @@ fn screen_capture_impl() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState {
             movable_mode: Mutex::new(false),
         })
@@ -715,6 +766,7 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
+        .plugin(tauri_plugin_clipboard_manager::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,7 +1,7 @@
+use chrono::{DateTime, Utc};
 use lopdf::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
 use std::path::Path;
-use chrono::{DateTime, Utc};
 
 // ── Merge PDFs ──────────────────────────────────────────────────
 
@@ -56,10 +56,7 @@ pub fn merge_pdfs(input_paths: Vec<String>, output_path: String) -> Result<Strin
 
     for (id, object) in &merged.objects {
         if let Ok(dict) = object.as_dict() {
-            let type_name = dict
-                .get(b"Type")
-                .ok()
-                .and_then(|t| t.as_name_str().ok());
+            let type_name = dict.get(b"Type").ok().and_then(|t| t.as_name_str().ok());
             match type_name {
                 Some("Catalog") => {
                     catalog_object = Some((*id, object.clone()));
@@ -79,8 +76,7 @@ pub fn merge_pdfs(input_paths: Vec<String>, output_path: String) -> Result<Strin
         }
     }
 
-    let catalog_object =
-        catalog_object.ok_or("Não foi possível encontrar o catálogo do PDF.")?;
+    let catalog_object = catalog_object.ok_or("Não foi possível encontrar o catálogo do PDF.")?;
     let pages_object =
         pages_object.ok_or("Não foi possível encontrar o objeto de páginas do PDF.")?;
 
@@ -129,7 +125,9 @@ pub fn merge_pdfs(input_paths: Vec<String>, output_path: String) -> Result<Strin
         dict.remove(b"Outlines");
     }
 
-    merged.trailer.set("Root", Object::Reference(catalog_object.0));
+    merged
+        .trailer
+        .set("Root", Object::Reference(catalog_object.0));
     merged.max_id = max_id;
     merged.renumber_objects();
     merged.compress();
@@ -163,8 +161,7 @@ pub fn split_pdf(
         return Err(format!("Arquivo não encontrado: {}", input_path));
     }
 
-    let doc =
-        Document::load(&input_path).map_err(|e| format!("Erro ao abrir o PDF: {}", e))?;
+    let doc = Document::load(&input_path).map_err(|e| format!("Erro ao abrir o PDF: {}", e))?;
 
     let page_count = doc.get_pages().len() as u32;
     if page_count == 0 {
@@ -293,17 +290,19 @@ pub fn get_pdf_info(path: String) -> Result<PdfInfo, String> {
 
     let doc = Document::load(&path).map_err(|e| format!("Erro ao abrir o PDF: {}", e))?;
     let page_count = doc.get_pages().len();
-    let metadata = std::fs::metadata(&path).map_err(|e| format!("Erro ao obter metadados: {}", e))?;
+    let metadata =
+        std::fs::metadata(&path).map_err(|e| format!("Erro ao obter metadados: {}", e))?;
     let size = metadata.len();
-    let created = metadata.created()
+    let created = metadata
+        .created()
         .map_err(|e| format!("Erro ao obter data de criação: {}", e))?
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| format!("Erro na conversão de tempo: {}", e))?
         .as_secs();
 
     // Formatar data
-    let datetime = DateTime::<Utc>::from_timestamp(created as i64, 0)
-        .ok_or("Erro ao converter timestamp")?;
+    let datetime =
+        DateTime::<Utc>::from_timestamp(created as i64, 0).ok_or("Erro ao converter timestamp")?;
     let created_str = datetime.format("%d/%m/%Y %H:%M:%S").to_string();
 
     Ok(PdfInfo {
@@ -343,7 +342,8 @@ pub fn compress_pdf(input_path: String, output_path: String, level: String) -> R
         _ => return Err("Nível de compressão inválido".into()),
     }
 
-    doc.save(&output_path).map_err(|e| format!("Erro ao salvar o PDF: {}", e))?;
+    doc.save(&output_path)
+        .map_err(|e| format!("Erro ao salvar o PDF: {}", e))?;
 
     let new_size = std::fs::metadata(&output_path)
         .map_err(|e| format!("Erro ao obter tamanho do arquivo comprimido: {}", e))?

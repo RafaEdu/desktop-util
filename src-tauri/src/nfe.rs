@@ -1,6 +1,6 @@
 // ── NFe Query Module ───────────────────────────────────────────
-use tauri::Manager;
 use std::io::Write;
+use tauri::Manager;
 
 #[derive(serde::Serialize, Clone, Default)]
 pub struct NfeParty {
@@ -113,18 +113,12 @@ pub struct NfeData {
 }
 
 #[tauri::command]
-pub async fn query_nfe(
-    thumbprint: String,
-    access_key: String,
-) -> Result<String, String> {
+pub async fn query_nfe(thumbprint: String, access_key: String) -> Result<String, String> {
     query_nfe_impl(thumbprint, access_key).await
 }
 
 #[cfg(windows)]
-async fn query_nfe_impl(
-    thumbprint: String,
-    access_key: String,
-) -> Result<String, String> {
+async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String, String> {
     if access_key.len() != 44 || !access_key.chars().all(|c| c.is_ascii_digit()) {
         return Err("Chave de acesso deve conter exatamente 44 dígitos numéricos".into());
     }
@@ -169,7 +163,11 @@ async fn query_nfe_impl(
         .map_err(|e| format!("Falha ao ler resposta: {}", e))?;
 
     if !status.is_success() {
-        let preview = if body.len() > 500 { &body[..500] } else { &body };
+        let preview = if body.len() > 500 {
+            &body[..500]
+        } else {
+            &body
+        };
         return Err(format!("SEFAZ retornou status {}: {}", status, preview));
     }
 
@@ -181,10 +179,7 @@ async fn query_nfe_impl(
 }
 
 #[cfg(not(windows))]
-async fn query_nfe_impl(
-    _thumbprint: String,
-    _access_key: String,
-) -> Result<String, String> {
+async fn query_nfe_impl(_thumbprint: String, _access_key: String) -> Result<String, String> {
     Err("Consulta NFe disponível apenas no Windows".into())
 }
 
@@ -221,7 +216,7 @@ pub fn download_danfe(source_path: String, access_key: String) -> Result<String,
         std::fs::create_dir_all(&downloads)
             .map_err(|e| format!("Falha ao criar pasta Downloads: {}", e))?;
     }
-    
+
     let filename_html = format!("DANFE_{}.html", &access_key[..20.min(access_key.len())]);
     let dest_html = downloads.join(filename_html);
     std::fs::copy(&source_path, &dest_html)
@@ -238,10 +233,7 @@ pub fn download_danfe(source_path: String, access_key: String) -> Result<String,
 }
 
 #[tauri::command]
-pub async fn query_nfe_portal(
-    app: tauri::AppHandle,
-    access_key: String,
-) -> Result<(), String> {
+pub async fn query_nfe_portal(app: tauri::AppHandle, access_key: String) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window("sefaz-nfe") {
         let _: Result<(), _> = existing.close();
     }
@@ -285,8 +277,8 @@ fn build_portal_init_script(access_key: &str) -> String {
 
 #[cfg(windows)]
 fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String> {
-    use windows_sys::Win32::Security::Cryptography::*;
     use rand::Rng;
+    use windows_sys::Win32::Security::Cryptography::*;
 
     let password: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -297,8 +289,10 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String
     unsafe {
         let store_name: Vec<u16> = "MY\0".encode_utf16().collect();
         let store = CertOpenSystemStoreW(0, store_name.as_ptr());
-        if store.is_null() { return Err("Falha ao abrir repositório".into()); }
-        
+        if store.is_null() {
+            return Err("Falha ao abrir repositório".into());
+        }
+
         let cert = find_cert_by_thumbprint_raw(store, thumbprint);
         if cert.is_null() {
             CertCloseStore(store, 0);
@@ -308,92 +302,158 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String
         let cnpj = extract_cnpj_from_cert(cert);
         let mem_store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, std::ptr::null());
         CertAddCertificateContextToStore(mem_store, cert, 4, std::ptr::null_mut());
-        
+
         let password_wide: Vec<u16> = password.encode_utf16().chain(std::iter::once(0)).collect();
-        let mut pfx_blob = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
-        PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
-        
+        let mut pfx_blob = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+        PFXExportCertStoreEx(
+            mem_store,
+            &mut pfx_blob,
+            password_wide.as_ptr(),
+            std::ptr::null_mut(),
+            0x0004 | 0x0002,
+        );
+
         let mut pfx_data = vec![0u8; pfx_blob.cbData as usize];
         pfx_blob.pbData = pfx_data.as_mut_ptr();
-        let ok = PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
+        let ok = PFXExportCertStoreEx(
+            mem_store,
+            &mut pfx_blob,
+            password_wide.as_ptr(),
+            std::ptr::null_mut(),
+            0x0004 | 0x0002,
+        );
 
         CertCloseStore(mem_store, 0);
         CertCloseStore(store, 0);
 
-        if ok == 0 { return Err("Falha ao exportar PFX".into()); }
+        if ok == 0 {
+            return Err("Falha ao exportar PFX".into());
+        }
         Ok((pfx_data, password, cnpj))
     }
 }
 
 #[cfg(windows)]
-unsafe fn find_cert_by_thumbprint_raw(store: *mut std::ffi::c_void, thumbprint: &str) -> *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT {
+unsafe fn find_cert_by_thumbprint_raw(
+    store: *mut std::ffi::c_void,
+    thumbprint: &str,
+) -> *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT {
     use windows_sys::Win32::Security::Cryptography::*;
     let mut prev: *const CERT_CONTEXT = std::ptr::null();
     loop {
         let cert = CertEnumCertificatesInStore(store, prev);
-        if cert.is_null() { return std::ptr::null(); }
+        if cert.is_null() {
+            return std::ptr::null();
+        }
         let tp = get_cert_thumbprint(cert);
-        if tp.eq_ignore_ascii_case(thumbprint) { return cert; }
+        if tp.eq_ignore_ascii_case(thumbprint) {
+            return cert;
+        }
         prev = cert;
     }
 }
 
 #[cfg(windows)]
-unsafe fn get_cert_thumbprint(cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT) -> String {
+unsafe fn get_cert_thumbprint(
+    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+) -> String {
     use windows_sys::Win32::Security::Cryptography::CertGetCertificateContextProperty;
     let mut hash_size: u32 = 20;
     let mut hash = vec![0u8; 20];
-    if CertGetCertificateContextProperty(cert, 3, hash.as_mut_ptr() as *mut _, &mut hash_size) == 0 {
+    if CertGetCertificateContextProperty(cert, 3, hash.as_mut_ptr() as *mut _, &mut hash_size) == 0
+    {
         return String::new();
     }
-    hash[..hash_size as usize].iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(":")
+    hash[..hash_size as usize]
+        .iter()
+        .map(|b| format!("{:02X}", b))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 #[cfg(windows)]
-unsafe fn extract_cnpj_from_cert(cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT) -> String {
+unsafe fn extract_cnpj_from_cert(
+    cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+) -> String {
     use windows_sys::Win32::Security::Cryptography::*;
     let mut buf = vec![0u16; 512];
-    let len = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, std::ptr::null(), buf.as_mut_ptr(), buf.len() as u32);
-    let simple = if len > 1 { String::from_utf16_lossy(&buf[..len as usize - 1]) } else { String::new() };
-    if let Some(cnpj) = find_cnpj_in_str(&simple) { return cnpj; }
+    let len = CertGetNameStringW(
+        cert,
+        CERT_NAME_SIMPLE_DISPLAY_TYPE,
+        0,
+        std::ptr::null(),
+        buf.as_mut_ptr(),
+        buf.len() as u32,
+    );
+    let simple = if len > 1 {
+        String::from_utf16_lossy(&buf[..len as usize - 1])
+    } else {
+        String::new()
+    };
+    if let Some(cnpj) = find_cnpj_in_str(&simple) {
+        return cnpj;
+    }
     String::new()
 }
 
 fn find_cnpj_in_str(s: &str) -> Option<String> {
     for part in s.split(':') {
         let trimmed = part.trim();
-        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) { return Some(trimmed.to_string()); }
+        if trimmed.len() == 14 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Some(trimmed.to_string());
+        }
     }
     let mut buf = String::new();
     for c in s.chars() {
-        if c.is_ascii_digit() { buf.push(c); } else { if buf.len() == 14 { return Some(buf); } buf.clear(); }
+        if c.is_ascii_digit() {
+            buf.push(c);
+        } else {
+            if buf.len() == 14 {
+                return Some(buf);
+            }
+            buf.clear();
+        }
     }
-    if buf.len() == 14 { return Some(buf); }
+    if buf.len() == 14 {
+        return Some(buf);
+    }
     None
 }
 
 fn build_soap_request(access_key: &str, cnpj: &str, uf_code: u32, tp_amb: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap12:Header><nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><cUF>{uf}</cUF><versaoDados>1.01</versaoDados></nfeCabecMsg></soap12:Header><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><cUFAutor>{uf}</cUFAutor><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
-        uf = uf_code, tp_amb = tp_amb, cnpj = cnpj, key = access_key,
+        uf = uf_code,
+        tp_amb = tp_amb,
+        cnpj = cnpj,
+        key = access_key,
     )
 }
 
 fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, String), String> {
-    let cstat = extract_tag_content(soap_xml, "cStat").unwrap_or_default().trim().to_string();
+    let cstat = extract_tag_content(soap_xml, "cStat")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     if cstat != "138" {
         let xmotivo = extract_tag_content(soap_xml, "xMotivo").unwrap_or_default();
         return Err(format!("SEFAZ: {} - {}", cstat, xmotivo));
     }
 
     let doc_zips = extract_all_doc_zips(soap_xml);
-    if doc_zips.is_empty() { return Err("Nenhum documento encontrado na resposta da SEFAZ".into()); }
+    if doc_zips.is_empty() {
+        return Err("Nenhum documento encontrado na resposta da SEFAZ".into());
+    }
 
     let mut nfe_xml_raw = String::new();
     for (schema, b64_content) in &doc_zips {
         if schema.contains("procNFe") {
-            let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
-                .map_err(|e| format!("Falha decode base64: {}", e))?;
+            let compressed =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
+                    .map_err(|e| format!("Falha decode base64: {}", e))?;
             nfe_xml_raw = decompress_doc_zip(&compressed)?;
             break;
         }
@@ -401,8 +461,9 @@ fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, St
 
     if nfe_xml_raw.is_empty() {
         let (_, b64_content) = &doc_zips[0];
-        let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
-            .map_err(|e| format!("Falha decode base64: {}", e))?;
+        let compressed =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
+                .map_err(|e| format!("Falha decode base64: {}", e))?;
         nfe_xml_raw = decompress_doc_zip(&compressed)?;
     }
 
@@ -432,11 +493,18 @@ fn extract_all_doc_zips(xml: &str) -> Vec<(String, String)> {
     let mut search_from = 0;
     while let Some(start) = xml[search_from..].find("<docZip") {
         let abs_start = search_from + start;
-        let tag_section = &xml[abs_start..abs_start + xml[abs_start..].find('>').unwrap_or(200).min(200)];
+        let tag_section =
+            &xml[abs_start..abs_start + xml[abs_start..].find('>').unwrap_or(200).min(200)];
         let schema = if let Some(schema_start) = tag_section.find("schema=\"") {
             let s = schema_start + 8;
-            if let Some(schema_end) = tag_section[s..].find('"') { tag_section[s..s + schema_end].to_string() } else { String::new() }
-        } else { String::new() };
+            if let Some(schema_end) = tag_section[s..].find('"') {
+                tag_section[s..s + schema_end].to_string()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
         if let Some(tag_end) = xml[abs_start..].find('>') {
             let content_start = abs_start + tag_end + 1;
             if let Some(close) = xml[content_start..].find("</docZip>") {
@@ -456,38 +524,59 @@ fn decompress_doc_zip(data: &[u8]) -> Result<String, String> {
     {
         let mut decoder = flate2::read::GzDecoder::new(data);
         let mut result = String::new();
-        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() { return Ok(result); }
+        if decoder.read_to_string(&mut result).is_ok() && !result.is_empty() {
+            return Ok(result);
+        }
     }
     Err("Falha ao descomprimir documento".into())
 }
 
 fn parse_nfe_xml(xml: &str, access_key: &str) -> Result<NfeData, String> {
-    let mut data = NfeData { chave: access_key.to_string(), ..Default::default() };
+    let mut data = NfeData {
+        chave: access_key.to_string(),
+        ..Default::default()
+    };
     if let Some(ide) = extract_block(xml, "ide") {
         data.numero = extract_tag_content(&ide, "nNF").unwrap_or_default();
         data.serie = extract_tag_content(&ide, "serie").unwrap_or_default();
         data.data_emissao = extract_tag_content(&ide, "dhEmi").unwrap_or_default();
-        data.data_saida_entrada = extract_tag_content(&ide, "dhSaiEnt").or_else(|| extract_tag_content(&ide, "dSaiEnt")).unwrap_or_default();
+        data.data_saida_entrada = extract_tag_content(&ide, "dhSaiEnt")
+            .or_else(|| extract_tag_content(&ide, "dSaiEnt"))
+            .unwrap_or_default();
         data.hora_saida_entrada = extract_tag_content(&ide, "hSaiEnt").unwrap_or_default();
         data.nat_op = extract_tag_content(&ide, "natOp").unwrap_or_default();
         data.tipo_nf = extract_tag_content(&ide, "tpNF").unwrap_or_default();
     }
     if let Some(emit_block) = extract_block(xml, "emit") {
         data.emitente.name = extract_tag_content(&emit_block, "xNome").unwrap_or_default();
-        data.emitente.cnpj_cpf = extract_tag_content(&emit_block, "CNPJ").or_else(|| extract_tag_content(&emit_block, "CPF")).unwrap_or_default();
+        data.emitente.cnpj_cpf = extract_tag_content(&emit_block, "CNPJ")
+            .or_else(|| extract_tag_content(&emit_block, "CPF"))
+            .unwrap_or_default();
         data.emitente.ie = extract_tag_content(&emit_block, "IE").unwrap_or_default();
-        if let Some(addr) = extract_block(&emit_block, "enderEmit") { data.emitente.address = parse_address(&addr); }
+        if let Some(addr) = extract_block(&emit_block, "enderEmit") {
+            data.emitente.address = parse_address(&addr);
+        }
     }
     if let Some(dest_block) = extract_block(xml, "dest") {
         data.destinatario.name = extract_tag_content(&dest_block, "xNome").unwrap_or_default();
-        data.destinatario.cnpj_cpf = extract_tag_content(&dest_block, "CNPJ").or_else(|| extract_tag_content(&dest_block, "CPF")).unwrap_or_default();
+        data.destinatario.cnpj_cpf = extract_tag_content(&dest_block, "CNPJ")
+            .or_else(|| extract_tag_content(&dest_block, "CPF"))
+            .unwrap_or_default();
         data.destinatario.ie = extract_tag_content(&dest_block, "IE").unwrap_or_default();
-        if let Some(addr) = extract_block(&dest_block, "enderDest") { data.destinatario.address = parse_address(&addr); }
+        if let Some(addr) = extract_block(&dest_block, "enderDest") {
+            data.destinatario.address = parse_address(&addr);
+        }
     }
     data.produtos = parse_products(xml);
-    if let Some(tot_block) = extract_block(xml, "ICMSTot") { data.totais = parse_totals(&tot_block); }
-    if let Some(transp) = extract_block(xml, "transp") { data.transporte = parse_transport(&transp); }
-    if let Some(cobr) = extract_block(xml, "cobr") { data.fatura = Some(parse_fatura(&cobr)); }
+    if let Some(tot_block) = extract_block(xml, "ICMSTot") {
+        data.totais = parse_totals(&tot_block);
+    }
+    if let Some(transp) = extract_block(xml, "transp") {
+        data.transporte = parse_transport(&transp);
+    }
+    if let Some(cobr) = extract_block(xml, "cobr") {
+        data.fatura = Some(parse_fatura(&cobr));
+    }
     if let Some(inf) = extract_block(xml, "infAdic") {
         data.info_adicional.inf_cpl = extract_tag_content(&inf, "infCpl").unwrap_or_default();
         data.info_adicional.inf_fisco = extract_tag_content(&inf, "infAdFisco").unwrap_or_default();
@@ -530,13 +619,20 @@ fn parse_totals(xml: &str) -> NfeTotais {
     }
 }
 fn parse_transport(xml: &str) -> NfeTransporte {
-    let mut t = NfeTransporte { mod_frete: extract_tag_content(xml, "modFrete").unwrap_or_default(), ..Default::default() };
+    let mut t = NfeTransporte {
+        mod_frete: extract_tag_content(xml, "modFrete").unwrap_or_default(),
+        ..Default::default()
+    };
     if let Some(transporta) = extract_block(xml, "transporta") {
         t.transportadora.name = extract_tag_content(&transporta, "xNome").unwrap_or_default();
-        t.transportadora.cnpj_cpf = extract_tag_content(&transporta, "CNPJ").or_else(|| extract_tag_content(&transporta, "CPF")).unwrap_or_default();
+        t.transportadora.cnpj_cpf = extract_tag_content(&transporta, "CNPJ")
+            .or_else(|| extract_tag_content(&transporta, "CPF"))
+            .unwrap_or_default();
         t.transportadora.ie = extract_tag_content(&transporta, "IE").unwrap_or_default();
-        t.transportadora.address.logradouro = extract_tag_content(&transporta, "xEnder").unwrap_or_default();
-        t.transportadora.address.municipio = extract_tag_content(&transporta, "xMun").unwrap_or_default();
+        t.transportadora.address.logradouro =
+            extract_tag_content(&transporta, "xEnder").unwrap_or_default();
+        t.transportadora.address.municipio =
+            extract_tag_content(&transporta, "xMun").unwrap_or_default();
         t.transportadora.address.uf = extract_tag_content(&transporta, "UF").unwrap_or_default();
     }
     if let Some(veic) = extract_block(xml, "veicTransp") {
@@ -555,7 +651,9 @@ fn parse_transport(xml: &str) -> NfeTransporte {
     t
 }
 fn parse_fatura(xml: &str) -> NfeFatura {
-    let mut f = NfeFatura { duplicatas: Vec::new() };
+    let mut f = NfeFatura {
+        duplicatas: Vec::new(),
+    };
     let mut search_from = 0;
     while let Some(dup_start) = xml[search_from..].find("<dup") {
         let abs_start = search_from + dup_start;
@@ -567,7 +665,9 @@ fn parse_fatura(xml: &str) -> NfeFatura {
                 v_dup: extract_tag_content(dup_block, "vDup").unwrap_or_default(),
             });
             search_from = abs_start + dup_end + 6;
-        } else { break; }
+        } else {
+            break;
+        }
     }
     f
 }
@@ -581,9 +681,18 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
             let det_block = &xml[abs_start..abs_start + det_end + 6];
             let num = if let Some(nitem_pos) = det_block.find("nItem=\"") {
                 let s = nitem_pos + 7;
-                if let Some(end) = det_block[s..].find('"') { det_block[s..s + end].parse().unwrap_or(item_num) } else { item_num }
-            } else { item_num };
-            let mut prod = NfeProduto { num, ..Default::default() };
+                if let Some(end) = det_block[s..].find('"') {
+                    det_block[s..s + end].parse().unwrap_or(item_num)
+                } else {
+                    item_num
+                }
+            } else {
+                item_num
+            };
+            let mut prod = NfeProduto {
+                num,
+                ..Default::default()
+            };
             if let Some(prod_block) = extract_block(det_block, "prod") {
                 prod.code = extract_tag_content(&prod_block, "cProd").unwrap_or_default();
                 prod.description = extract_tag_content(&prod_block, "xProd").unwrap_or_default();
@@ -597,7 +706,9 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
             if let Some(imposto) = extract_block(det_block, "imposto") {
                 prod.v_tot_trib = extract_tag_content(&imposto, "vTotTrib").unwrap_or_default();
                 if let Some(icms) = extract_block(&imposto, "ICMS") {
-                    prod.cst = extract_tag_content(&icms, "CST").or_else(|| extract_tag_content(&icms, "CSOSN")).unwrap_or_default();
+                    prod.cst = extract_tag_content(&icms, "CST")
+                        .or_else(|| extract_tag_content(&icms, "CSOSN"))
+                        .unwrap_or_default();
                     prod.bc_icms = extract_tag_content(&icms, "vBC").unwrap_or_default();
                     prod.aliq_icms = extract_tag_content(&icms, "pICMS").unwrap_or_default();
                     prod.v_icms = extract_tag_content(&icms, "vICMS").unwrap_or_default();
@@ -610,7 +721,9 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
             products.push(prod);
             search_from = abs_start + det_end + 6;
             item_num += 1;
-        } else { break; }
+        } else {
+            break;
+        }
     }
     products
 }
@@ -618,18 +731,35 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
 // ── DANFE HTML Generator (PAISAGEM / HORIZONTAL) ───────────────
 
 fn generate_danfe_html(data: &NfeData) -> String {
-    let chave_formatada = data.chave.chars().collect::<Vec<_>>().chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" ");
+    let chave_formatada = data
+        .chave
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(4)
+        .map(|c| c.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ");
     let cnpj_emit = format_cnpj_cpf(&data.emitente.cnpj_cpf);
     let cnpj_dest = format_cnpj_cpf(&data.destinatario.cnpj_cpf);
     let cnpj_transp = format_cnpj_cpf(&data.transporte.transportadora.cnpj_cpf);
 
     let format_addr = |a: &NfeAddress| -> String {
         let mut parts = Vec::new();
-        if !a.logradouro.is_empty() { parts.push(format!("{}, {}", a.logradouro, a.nro)); }
-        if !a.bairro.is_empty() { parts.push(a.bairro.clone()); }
-        if !a.municipio.is_empty() { parts.push(format!("{} - {}", a.municipio, a.uf)); }
-        if !a.cep.is_empty() { parts.push(format!("CEP: {}", a.cep)); }
-        if !a.fone.is_empty() { parts.push(format!("Fone: {}", a.fone)); }
+        if !a.logradouro.is_empty() {
+            parts.push(format!("{}, {}", a.logradouro, a.nro));
+        }
+        if !a.bairro.is_empty() {
+            parts.push(a.bairro.clone());
+        }
+        if !a.municipio.is_empty() {
+            parts.push(format!("{} - {}", a.municipio, a.uf));
+        }
+        if !a.cep.is_empty() {
+            parts.push(format!("CEP: {}", a.cep));
+        }
+        if !a.fone.is_empty() {
+            parts.push(format!("Fone: {}", a.fone));
+        }
         parts.join(" - ")
     };
     let emit_addr = format_addr(&data.emitente.address);
@@ -637,11 +767,13 @@ fn generate_danfe_html(data: &NfeData) -> String {
     let transp_addr = format_addr(&data.transporte.transportadora.address);
 
     let fmt_date = |d: &str| -> String {
-         if d.len() >= 10 {
+        if d.len() >= 10 {
             let parts: Vec<&str> = d[..10].split('-').collect();
-            if parts.len() == 3 { return format!("{}/{}/{}", parts[2], parts[1], parts[0]); }
-         }
-         d.to_string()
+            if parts.len() == 3 {
+                return format!("{}/{}/{}", parts[2], parts[1], parts[0]);
+            }
+        }
+        d.to_string()
     };
     let data_emissao_fmt = fmt_date(&data.data_emissao);
     let data_sai_ent_fmt = fmt_date(&data.data_saida_entrada);
@@ -760,7 +892,20 @@ fn generate_danfe_html(data: &NfeData) -> String {
                 <td class='t-right'>{}</td>
                 <td class='t-right'>{}</td>
             </tr>",
-            p.code, p.description, p.ncm, p.cst, p.cfop, p.unit, p.qty, p.unit_price, p.total, p.bc_icms, p.v_icms, p.v_ipi, p.aliq_icms, p.aliq_ipi
+            p.code,
+            p.description,
+            p.ncm,
+            p.cst,
+            p.cfop,
+            p.unit,
+            p.qty,
+            p.unit_price,
+            p.total,
+            p.bc_icms,
+            p.v_icms,
+            p.v_ipi,
+            p.aliq_icms,
+            p.aliq_ipi
         ));
     }
 
@@ -946,7 +1091,7 @@ fn generate_danfe_html(data: &NfeData) -> String {
         numero = data.numero,
         serie = data.serie,
         tipo_nf = data.tipo_nf,
-        chave = data.chave, 
+        chave = data.chave,
         chave_fmt = chave_formatada,
         emit_nome = data.emitente.name,
         emit_addr = emit_addr,
@@ -971,7 +1116,6 @@ fn generate_danfe_html(data: &NfeData) -> String {
         outros = data.totais.other,
         ipi = data.totais.ipi,
         v_nf = data.totais.total_nfe,
-        
         transp_nome = data.transporte.transportadora.name,
         mod_frete = data.transporte.mod_frete,
         rntrc = data.transporte.veiculo_rntrc,
@@ -988,7 +1132,6 @@ fn generate_danfe_html(data: &NfeData) -> String {
         nvol = data.transporte.vol_nvol,
         peso_b = data.transporte.vol_peso_b,
         peso_l = data.transporte.vol_peso_l,
-
         inf_cpl = data.info_adicional.inf_cpl,
         products = prods,
         scripts = barcode_script
@@ -996,25 +1139,48 @@ fn generate_danfe_html(data: &NfeData) -> String {
 }
 
 fn format_cnpj_cpf(value: &str) -> String {
-    if value.len() == 14 { format!("{}.{}.{}/{}-{}", &value[0..2], &value[2..5], &value[5..8], &value[8..12], &value[12..14]) }
-    else if value.len() == 11 { format!("{}.{}.{}-{}", &value[0..3], &value[3..6], &value[6..9], &value[9..11]) }
-    else { value.to_string() }
+    if value.len() == 14 {
+        format!(
+            "{}.{}.{}/{}-{}",
+            &value[0..2],
+            &value[2..5],
+            &value[5..8],
+            &value[8..12],
+            &value[12..14]
+        )
+    } else if value.len() == 11 {
+        format!(
+            "{}.{}.{}-{}",
+            &value[0..3],
+            &value[3..6],
+            &value[6..9],
+            &value[9..11]
+        )
+    } else {
+        value.to_string()
+    }
 }
 
 fn save_files_to_temp(html: &str, raw_xml: &str, access_key: &str) -> Result<String, String> {
     use rand::Rng;
     let random: u64 = rand::thread_rng().gen();
     let temp_dir = std::env::temp_dir();
-    
+
     let xml_filename = format!("danfe_{}_{}.xml", access_key, random);
     let xml_path = temp_dir.join(xml_filename);
-    let mut xml_file = std::fs::File::create(&xml_path).map_err(|e| format!("Erro ao criar XML: {}", e))?;
-    xml_file.write_all(raw_xml.as_bytes()).map_err(|e| format!("Erro ao escrever XML: {}", e))?;
+    let mut xml_file =
+        std::fs::File::create(&xml_path).map_err(|e| format!("Erro ao criar XML: {}", e))?;
+    xml_file
+        .write_all(raw_xml.as_bytes())
+        .map_err(|e| format!("Erro ao escrever XML: {}", e))?;
 
     let html_filename = format!("danfe_{}_{}.html", access_key, random);
     let html_path = temp_dir.join(html_filename);
-    let mut html_file = std::fs::File::create(&html_path).map_err(|e| format!("Erro ao criar HTML: {}", e))?;
-    html_file.write_all(html.as_bytes()).map_err(|e| format!("Erro ao escrever HTML: {}", e))?;
+    let mut html_file =
+        std::fs::File::create(&html_path).map_err(|e| format!("Erro ao criar HTML: {}", e))?;
+    html_file
+        .write_all(html.as_bytes())
+        .map_err(|e| format!("Erro ao escrever HTML: {}", e))?;
 
     Ok(html_path.to_string_lossy().to_string())
 }
