@@ -125,17 +125,14 @@ async fn query_nfe_impl(
     thumbprint: String,
     access_key: String,
 ) -> Result<String, String> {
-    // Validate access key
     if access_key.len() != 44 || !access_key.chars().all(|c| c.is_ascii_digit()) {
         return Err("Chave de acesso deve conter exatamente 44 dígitos numéricos".into());
     }
 
-    // Extract UF code from access key (first 2 digits)
     let uf_code: u32 = access_key[..2]
         .parse()
         .map_err(|_| "Código UF inválido na chave de acesso".to_string())?;
 
-    // 1. Export certificate as PFX and extract CNPJ
     let (mut pfx_bytes, password, cnpj) = export_cert_pfx(&thumbprint)?;
 
     if cnpj.is_empty() {
@@ -143,16 +140,12 @@ async fn query_nfe_impl(
         return Err("Não foi possível extrair o CNPJ do certificado selecionado. Verifique se é um e-CNPJ (A1).".into());
     }
 
-    // 2. Build SOAP envelope (always production)
     let soap_xml = build_soap_request(&access_key, &cnpj, uf_code, "1");
-
-    // 3. Send request to SEFAZ (production endpoint)
     let endpoint = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
 
     let identity = reqwest::Identity::from_pkcs12_der(&pfx_bytes, &password)
         .map_err(|e| format!("Falha ao criar identidade TLS: {}", e))?;
 
-    // Zero out PFX bytes for security
     pfx_bytes.fill(0);
 
     let client = reqwest::Client::builder()
@@ -180,13 +173,8 @@ async fn query_nfe_impl(
         return Err(format!("SEFAZ retornou status {}: {}", status, preview));
     }
 
-    // 4. Parse SEFAZ SOAP response and return NfeData AND raw XML string
     let (nfe_data, raw_xml) = parse_sefaz_response(&body, &access_key)?;
-
-    // 5. Generate DANFE HTML (Novo Layout Otimizado)
     let html = generate_danfe_html(&nfe_data);
-
-    // 6. Save both XML and HTML to temp file and return path
     let path = save_files_to_temp(&html, &raw_xml, &access_key)?;
 
     Ok(path)
@@ -234,13 +222,11 @@ pub fn download_danfe(source_path: String, access_key: String) -> Result<String,
             .map_err(|e| format!("Falha ao criar pasta Downloads: {}", e))?;
     }
     
-    // Salva HTML
     let filename_html = format!("DANFE_{}.html", &access_key[..20.min(access_key.len())]);
     let dest_html = downloads.join(filename_html);
     std::fs::copy(&source_path, &dest_html)
         .map_err(|e| format!("Falha ao salvar arquivo HTML: {}", e))?;
 
-    // Tenta salvar o XML se existir (assumindo que está na mesma pasta temp com extensão .xml)
     let source_xml = std::path::PathBuf::from(&source_path).with_extension("xml");
     if source_xml.exists() {
         let filename_xml = format!("NFe_{}.xml", &access_key);
@@ -250,8 +236,6 @@ pub fn download_danfe(source_path: String, access_key: String) -> Result<String,
 
     Ok(dest_html.to_string_lossy().to_string())
 }
-
-// ── Portal-Based Query (WebView with Captcha) ──────────────────
 
 #[tauri::command]
 pub async fn query_nfe_portal(
@@ -297,7 +281,7 @@ fn build_portal_init_script(access_key: &str) -> String {
     )
 }
 
-// ── Cert Helpers ──────────────────────────────────────────────
+// ── Cert & Parser Helpers ─────────────────────────────────────
 
 #[cfg(windows)]
 fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String> {
@@ -323,17 +307,14 @@ fn export_cert_pfx(thumbprint: &str) -> Result<(Vec<u8>, String, String), String
 
         let cnpj = extract_cnpj_from_cert(cert);
         let mem_store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, std::ptr::null());
-        
         CertAddCertificateContextToStore(mem_store, cert, 4, std::ptr::null_mut());
         
         let password_wide: Vec<u16> = password.encode_utf16().chain(std::iter::once(0)).collect();
         let mut pfx_blob = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
-        
         PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
         
         let mut pfx_data = vec![0u8; pfx_blob.cbData as usize];
         pfx_blob.pbData = pfx_data.as_mut_ptr();
-        
         let ok = PFXExportCertStoreEx(mem_store, &mut pfx_blob, password_wide.as_ptr(), std::ptr::null_mut(), 0x0004 | 0x0002);
 
         CertCloseStore(mem_store, 0);
@@ -391,16 +372,12 @@ fn find_cnpj_in_str(s: &str) -> Option<String> {
     None
 }
 
-// ── SOAP Request Builder ───────────────────────────────────────
-
 fn build_soap_request(access_key: &str, cnpj: &str, uf_code: u32, tp_amb: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap12:Header><nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><cUF>{uf}</cUF><versaoDados>1.01</versaoDados></nfeCabecMsg></soap12:Header><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><cUFAutor>{uf}</cUFAutor><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
         uf = uf_code, tp_amb = tp_amb, cnpj = cnpj, key = access_key,
     )
 }
-
-// ── Response Parsing ───────────────────────────────────────────
 
 fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, String), String> {
     let cstat = extract_tag_content(soap_xml, "cStat").unwrap_or_default().trim().to_string();
@@ -413,8 +390,6 @@ fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, St
     if doc_zips.is_empty() { return Err("Nenhum documento encontrado na resposta da SEFAZ".into()); }
 
     let mut nfe_xml_raw = String::new();
-    
-    // Procura procNFe (XML Completo)
     for (schema, b64_content) in &doc_zips {
         if schema.contains("procNFe") {
             let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
@@ -424,7 +399,6 @@ fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, St
         }
     }
 
-    // Fallback se não achar procNFe explícito
     if nfe_xml_raw.is_empty() {
         let (_, b64_content) = &doc_zips[0];
         let compressed = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
@@ -641,14 +615,12 @@ fn parse_products(xml: &str) -> Vec<NfeProduto> {
     products
 }
 
-// ── DANFE HTML Generator ───────────────────────────────────────
+// ── DANFE HTML Generator (PAISAGEM / HORIZONTAL) ───────────────
 
 fn generate_danfe_html(data: &NfeData) -> String {
     let chave_formatada = data.chave.chars().collect::<Vec<_>>().chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join(" ");
     let cnpj_emit = format_cnpj_cpf(&data.emitente.cnpj_cpf);
     let cnpj_dest = format_cnpj_cpf(&data.destinatario.cnpj_cpf);
-    
-    // Agora usados corretamente
     let cnpj_transp = format_cnpj_cpf(&data.transporte.transportadora.cnpj_cpf);
 
     let format_addr = |a: &NfeAddress| -> String {
@@ -662,8 +634,6 @@ fn generate_danfe_html(data: &NfeData) -> String {
     };
     let emit_addr = format_addr(&data.emitente.address);
     let dest_addr = format_addr(&data.destinatario.address);
-    
-    // Agora usado corretamente
     let transp_addr = format_addr(&data.transporte.transportadora.address);
 
     let fmt_date = |d: &str| -> String {
@@ -676,41 +646,98 @@ fn generate_danfe_html(data: &NfeData) -> String {
     let data_emissao_fmt = fmt_date(&data.data_emissao);
     let data_sai_ent_fmt = fmt_date(&data.data_saida_entrada);
 
-    // CSS Grid Robusto para DANFE
+    // CSS Paisagem com Largura Total (~277mm no A4 Landscape)
     let css = r#"
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Libre+Barcode+128&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Libre+Barcode+128&family=Roboto+Condensed:wght@400;700&display=swap');
+        @page { size: A4 landscape; margin: 6mm; }
+        
         * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-        body { margin: 0; padding: 20px; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; background: #555; display: flex; justify-content: center; }
-        .page { width: 210mm; min-height: 297mm; background: white; padding: 10mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); position: relative; }
-        .row { display: flex; width: 100%; }
-        .col { display: flex; flex-direction: column; border: 1px solid #000; margin-right: -1px; margin-bottom: -1px; padding: 2px 4px; }
-        .label { font-size: 7pt; font-weight: bold; text-transform: uppercase; color: #444; }
-        .content { font-size: 9pt; font-weight: normal; color: #000; min-height: 12px; }
+        body { margin: 0; padding: 0; font-family: "Roboto Condensed", "Arial Narrow", sans-serif; background: #eee; }
+        
+        .page { 
+            width: 100%; 
+            max-width: 285mm; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 0; 
+            position: relative; 
+        }
+
+        /* Estrutura de Grid Flex */
+        .row { display: flex; width: 100%; border-left: 1px solid #000; border-top: 1px solid #000; }
+        .row-no-border { border: none !important; }
+        .col { 
+            display: flex; 
+            flex-direction: column; 
+            border-right: 1px solid #000; 
+            border-bottom: 1px solid #000; 
+            padding: 1px 3px; 
+            overflow: hidden;
+        }
+
+        /* Tipografia */
+        .label { font-size: 6pt; font-weight: bold; text-transform: uppercase; color: #333; margin-bottom: 1px; }
+        .content { font-size: 8pt; font-weight: normal; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1; }
+        .content-wrap { white-space: normal; line-height: 1.0; }
         .bold { font-weight: bold; }
         .center { text-align: center; justify-content: center; align-items: center; }
         .right { text-align: right; justify-content: center; }
-        .section-header { background: #eee; border: 1px solid #000; font-size: 8pt; font-weight: bold; text-transform: uppercase; padding: 2px; margin-bottom: -1px; margin-right: -1px; margin-top: 5px; }
-        
-        .box-canhoto { height: 25mm; display: flex; margin-bottom: 5px; }
-        .header-main { height: 35mm; display: flex; margin-bottom: 5px; }
-        .barcode { font-family: 'Libre Barcode 128', cursive; font-size: 42pt; text-align: center; overflow: hidden; white-space: nowrap; }
-        
-        table { width: 100%; border-collapse: collapse; font-size: 8pt; margin-top: -1px; }
-        th { border: 1px solid #000; background: #eee; font-weight: bold; padding: 2px; font-size: 7pt; }
-        td { border: 1px solid #000; padding: 2px; }
+
+        /* Headers de Seção */
+        .section-header { 
+            background: #e0e0e0; 
+            font-size: 7pt; 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            padding: 1px 3px; 
+            border: 1px solid #000; 
+            border-bottom: none; 
+            margin-top: 4px; 
+        }
+
+        /* Canhoto */
+        .canhoto-container {
+            border: 1px dashed #000;
+            margin-bottom: 5px;
+            padding: 0;
+            display: flex;
+            width: 100%;
+        }
+        .canhoto-col { border-right: 1px solid #000; padding: 2px 4px; display: flex; flex-direction: column; justify-content: space-between; }
+        .canhoto-col:last-child { border-right: none; }
+
+        /* Código de Barras */
+        .barcode-container { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 2px; }
+        .barcode { 
+            font-family: 'Libre Barcode 128', cursive; 
+            font-size: 38pt; 
+            white-space: nowrap; 
+            transform: scaleX(1.1); /* Estica levemente para leitura */
+            transform-origin: center;
+        }
+
+        /* Tabela de Produtos */
+        table { width: 100%; border-collapse: collapse; font-size: 7pt; margin-top: 0; table-layout: fixed; }
+        thead { display: table-header-group; } /* Repete cabeçalho na impressão */
+        tr { page-break-inside: avoid; }
+        th { border: 1px solid #000; background: #ddd; font-weight: bold; padding: 2px; text-align: center; font-size: 6pt; }
+        td { border: 1px solid #000; padding: 1px 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .t-left { text-align: left; }
         .t-right { text-align: right; }
         .t-center { text-align: center; }
-        
+
+        /* Larguras Específicas (%) */
+        .w-5 { width: 5%; } .w-10 { width: 10%; } .w-15 { width: 15%; } 
+        .w-20 { width: 20%; } .w-25 { width: 25%; } .w-30 { width: 30%; } 
+        .w-35 { width: 35%; } .w-40 { width: 40%; } .w-45 { width: 45%; } 
+        .w-50 { width: 50%; } .w-60 { width: 60%; } .flex-1 { flex: 1; }
+
         @media print {
-            body { background: white; padding: 0; }
-            .page { width: 100%; height: auto; padding: 0; box-shadow: none; margin: 0; }
+            body { background: white; margin: 0; padding: 0; }
+            .page { box-shadow: none; max-width: 100%; }
             .no-print { display: none; }
         }
-        
-        .w-10 { width: 10%; } .w-15 { width: 15%; } .w-20 { width: 20%; } 
-        .w-25 { width: 25%; } .w-30 { width: 30%; } .w-40 { width: 40%; } 
-        .w-50 { width: 50%; } .w-60 { width: 60%; } .flex-1 { flex: 1; }
     </style>
     "#;
 
@@ -718,10 +745,20 @@ fn generate_danfe_html(data: &NfeData) -> String {
     for p in &data.produtos {
         prods.push_str(&format!(
             "<tr>
-                <td class='t-center'>{}</td><td>{}</td><td class='t-center'>{}</td><td class='t-center'>{}</td>
-                <td class='t-center'>{}</td><td class='t-center'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td>
-                <td class='t-right'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td><td class='t-right'>{}</td>
-                <td class='t-right'>{}</td><td class='t-right'>{}</td>
+                <td class='t-center'>{}</td>
+                <td class='t-left content-wrap' style='white-space:normal'>{}</td>
+                <td class='t-center'>{}</td>
+                <td class='t-center'>{}</td>
+                <td class='t-center'>{}</td>
+                <td class='t-center'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
+                <td class='t-right'>{}</td>
             </tr>",
             p.code, p.description, p.ncm, p.cst, p.cfop, p.unit, p.qty, p.unit_price, p.total, p.bc_icms, p.v_icms, p.v_ipi, p.aliq_icms, p.aliq_ipi
         ));
@@ -730,7 +767,7 @@ fn generate_danfe_html(data: &NfeData) -> String {
     let barcode_script = r#"
     <script>
     (function() {
-        // Fallback simples
+        // Fallback para ajustar escala do barcode se necessário
     })();
     </script>
     "#;
@@ -741,111 +778,142 @@ fn generate_danfe_html(data: &NfeData) -> String {
 <head><meta charset="UTF-8"><title>DANFE - {numero}</title>{css}</head>
 <body>
     <div class="page">
-        <div class="box-canhoto">
-            <div class="col flex-1"><div class="label">RECEBEMOS DE {emit_nome} OS PRODUTOS/SERVIÇOS CONSTANTES NA NOTA FISCAL INDICADA AO LADO</div><div class="content center" style="margin-top:auto">DATA DE RECEBIMENTO</div></div>
-            <div class="col flex-1"><div class="label">IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR</div><div class="content"></div></div>
-            <div class="col w-15 center"><div class="label">NF-e</div><div class="content bold" style="font-size:14pt">Nº {numero}</div><div class="label">SÉRIE {serie}</div></div>
+        <div class="canhoto-container">
+            <div class="canhoto-col flex-1">
+                <div class="label">RECEBEMOS DE {emit_nome} OS PRODUTOS/SERVIÇOS CONSTANTES NA NOTA FISCAL INDICADA AO LADO</div>
+                <div class="center bold" style="margin-top:auto; font-size:8pt">DATA DE RECEBIMENTO</div>
+            </div>
+            <div class="canhoto-col flex-1">
+                <div class="label">IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR</div>
+                <div class="content"></div>
+            </div>
+            <div class="canhoto-col center w-15">
+                <div class="label" style="font-size:10pt">NF-e</div>
+                <div class="content bold" style="font-size:12pt">Nº {numero}</div>
+                <div class="content bold">SÉRIE {serie}</div>
+            </div>
         </div>
 
-        <div class="header-main">
-            <div class="col w-40 center">
-                <div class="content bold" style="font-size:12pt">{emit_nome}</div>
-                <div class="content" style="font-size:7pt">{emit_addr}</div>
+        <div class="row">
+            <div class="col w-40">
+                <div class="content bold content-wrap" style="font-size:10pt">{emit_nome}</div>
+                <div class="content content-wrap" style="font-size:7pt; margin-top:2px">{emit_addr}</div>
             </div>
+            
             <div class="col w-15 center">
-                <div class="content bold" style="font-size:18pt">DANFE</div>
-                <div class="label" style="text-align:center">Documento Auxiliar da Nota Fiscal Eletrônica</div>
-                <div class="row" style="border:none; width:100%; margin-top:5px">
-                    <div class="col flex-1 center" style="border:none"><div class="label">0 - Entrada<br>1 - Saída</div></div>
-                    <div class="col flex-1 center" style="border:1px solid #000"><div class="content bold" style="font-size:14pt">{tipo_nf}</div></div>
+                <div class="content bold" style="font-size:16pt">DANFE</div>
+                <div class="label center" style="text-align:center; font-size:5pt">Documento Auxiliar da Nota Fiscal Eletrônica</div>
+                <div class="row row-no-border" style="width:100%; margin:3px 0">
+                    <div class="col flex-1 center row-no-border"><div class="label">0 - Entrada<br>1 - Saída</div></div>
+                    <div class="col flex-1 center" style="border:1px solid #000; padding:2px"><div class="content bold" style="font-size:12pt">{tipo_nf}</div></div>
                 </div>
-                <div class="content bold" style="margin-top:2px">Nº {numero}</div>
+                <div class="content bold">Nº {numero}</div>
                 <div class="content">SÉRIE {serie}</div>
+                <div class="content">Folha 1/1</div>
             </div>
+
             <div class="col flex-1">
-                <div class="barcode">{chave}</div>
-                <div class="row" style="border:none">
-                   <div class="col flex-1" style="border:none"><div class="label">Chave de Acesso</div><div class="content center bold" style="font-size:10pt">{chave_fmt}</div></div>
+                <div class="barcode-container">
+                    <div class="barcode">{chave}</div>
                 </div>
-                <div class="row" style="border:none; border-top:1px solid #000">
-                    <div class="col flex-1 center" style="border:none; padding:4px">
-                        <div class="label">Consulta de autenticidade no portal nacional da NF-e<br>www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora</div>
+                <div class="row row-no-border">
+                   <div class="col flex-1 row-no-border" style="padding-top:2px">
+                       <div class="label">CHAVE DE ACESSO</div>
+                       <div class="content center bold" style="font-size:9pt">{chave_fmt}</div>
+                   </div>
+                </div>
+                <div class="row row-no-border" style="border-top:1px solid #000 !important">
+                    <div class="col flex-1 center row-no-border" style="padding:4px">
+                        <div class="label" style="font-size:6pt">Consulta de autenticidade no portal nacional da NF-e www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora</div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row">
+        <div class="row" style="border-top:none">
             <div class="col w-60"><div class="label">NATUREZA DA OPERAÇÃO</div><div class="content">{nat_op}</div></div>
             <div class="col flex-1"><div class="label">PROTOCOLO DE AUTORIZAÇÃO DE USO</div><div class="content">{protocolo}</div></div>
         </div>
-        <div class="row">
-            <div class="col flex-1"><div class="label">INSCRIÇÃO ESTADUAL</div><div class="content">{ie_emit}</div></div>
-            <div class="col flex-1"><div class="label">INSC. ESTADUAL SUBST. TRIB.</div><div class="content"></div></div>
+        <div class="row" style="border-top:none">
+            <div class="col w-30"><div class="label">INSCRIÇÃO ESTADUAL</div><div class="content">{ie_emit}</div></div>
+            <div class="col w-30"><div class="label">INSC. ESTADUAL SUBST. TRIB.</div><div class="content"></div></div>
             <div class="col flex-1"><div class="label">CNPJ</div><div class="content">{cnpj_emit}</div></div>
         </div>
 
-        <div class="section-header">Destinatário / Remetente</div>
+        <div class="section-header">DESTINATÁRIO / REMETENTE</div>
         <div class="row">
-            <div class="col w-60"><div class="label">NOME / RAZÃO SOCIAL</div><div class="content">{dest_nome}</div></div>
-            <div class="col w-25"><div class="label">CNPJ / CPF</div><div class="content">{dest_cnpj}</div></div>
+            <div class="col w-50"><div class="label">NOME / RAZÃO SOCIAL</div><div class="content">{dest_nome}</div></div>
+            <div class="col w-20"><div class="label">CNPJ / CPF</div><div class="content">{dest_cnpj}</div></div>
+            <div class="col w-15"><div class="label">INSCR. ESTADUAL</div><div class="content">{dest_ie}</div></div>
             <div class="col flex-1"><div class="label">DATA DA EMISSÃO</div><div class="content right">{dt_emi}</div></div>
         </div>
-        <div class="row">
-            <div class="col w-50"><div class="label">ENDEREÇO</div><div class="content">{dest_addr}</div></div>
-            <div class="col w-20"><div class="label">BAIRRO / DISTRITO</div><div class="content"></div></div>
-            <div class="col w-15"><div class="label">CEP</div><div class="content"></div></div>
+        <div class="row" style="border-top:none">
+            <div class="col w-40"><div class="label">ENDEREÇO</div><div class="content">{dest_addr}</div></div>
+            <div class="col w-25"><div class="label">MUNICÍPIO</div><div class="content"></div></div>
+            <div class="col w-5"><div class="label">UF</div><div class="content center"></div></div>
+            <div class="col w-10"><div class="label">FONE/FAX</div><div class="content"></div></div>
+            <div class="col w-10"><div class="label">CEP</div><div class="content"></div></div>
             <div class="col flex-1"><div class="label">DATA SAÍDA/ENTRADA</div><div class="content right">{dt_sai}</div></div>
         </div>
 
-        <div class="section-header">Cálculo do Imposto</div>
+        <div class="section-header">CÁLCULO DO IMPOSTO</div>
         <div class="row">
             <div class="col flex-1"><div class="label">BASE CÁLC. ICMS</div><div class="content right">{bc_icms}</div></div>
             <div class="col flex-1"><div class="label">VALOR ICMS</div><div class="content right">{v_icms}</div></div>
             <div class="col flex-1"><div class="label">BASE CÁLC. ICMS ST</div><div class="content right">{bc_st}</div></div>
             <div class="col flex-1"><div class="label">VALOR ICMS ST</div><div class="content right">{v_st}</div></div>
             <div class="col flex-1"><div class="label">VALOR TOTAL PRODUTOS</div><div class="content right">{v_prod}</div></div>
-        </div>
-        <div class="row">
             <div class="col flex-1"><div class="label">VALOR FRETE</div><div class="content right">{frete}</div></div>
             <div class="col flex-1"><div class="label">VALOR SEGURO</div><div class="content right">{seg}</div></div>
             <div class="col flex-1"><div class="label">DESCONTO</div><div class="content right">{desc}</div></div>
             <div class="col flex-1"><div class="label">OUTRAS DESPESAS</div><div class="content right">{outros}</div></div>
             <div class="col flex-1"><div class="label">VALOR IPI</div><div class="content right">{ipi}</div></div>
-            <div class="col flex-1"><div class="label">VALOR TOTAL NOTA</div><div class="content right bold">{v_nf}</div></div>
+            <div class="col flex-1 bg-gray-200"><div class="label">VALOR TOTAL NOTA</div><div class="content right bold">{v_nf}</div></div>
         </div>
 
-        <div class="section-header">Transportador / Volumes Transportados</div>
+        <div class="section-header">TRANSPORTADOR / VOLUMES TRANSPORTADOS</div>
         <div class="row">
             <div class="col w-40"><div class="label">RAZÃO SOCIAL</div><div class="content">{transp_nome}</div></div>
-            <div class="col w-15"><div class="label">FRETE POR CONTA</div><div class="content center">{mod_frete}</div></div>
-            <div class="col w-15"><div class="label">CÓDIGO ANTT</div><div class="content center">{rntrc}</div></div>
+            <div class="col w-10"><div class="label">FRETE POR CONTA</div><div class="content center">{mod_frete}</div></div>
+            <div class="col w-10"><div class="label">CÓDIGO ANTT</div><div class="content center">{rntrc}</div></div>
             <div class="col w-15"><div class="label">PLACA DO VEÍCULO</div><div class="content center">{placa}</div></div>
-            <div class="col w-10"><div class="label">UF</div><div class="content center">{uf_veic}</div></div>
+            <div class="col w-5"><div class="label">UF</div><div class="content center">{uf_veic}</div></div>
             <div class="col flex-1"><div class="label">CNPJ/CPF</div><div class="content center">{cnpj_transp}</div></div>
         </div>
-        <div class="row">
+        <div class="row" style="border-top:none">
             <div class="col w-40"><div class="label">ENDEREÇO</div><div class="content">{transp_addr}</div></div>
-            <div class="col w-40"><div class="label">MUNICÍPIO</div><div class="content">{transp_mun}</div></div>
-            <div class="col w-10"><div class="label">UF</div><div class="content center">{transp_uf}</div></div>
+            <div class="col w-30"><div class="label">MUNICÍPIO</div><div class="content">{transp_mun}</div></div>
+            <div class="col w-5"><div class="label">UF</div><div class="content center">{transp_uf}</div></div>
             <div class="col flex-1"><div class="label">INSCRIÇÃO ESTADUAL</div><div class="content center">{transp_ie}</div></div>
         </div>
-        <div class="row">
+        <div class="row" style="border-top:none">
             <div class="col w-10"><div class="label">QUANTIDADE</div><div class="content center">{qvol}</div></div>
-            <div class="col w-20"><div class="label">ESPÉCIE</div><div class="content">{esp}</div></div>
-            <div class="col w-20"><div class="label">MARCA</div><div class="content">{marca}</div></div>
+            <div class="col w-15"><div class="label">ESPÉCIE</div><div class="content">{esp}</div></div>
+            <div class="col w-15"><div class="label">MARCA</div><div class="content">{marca}</div></div>
             <div class="col w-20"><div class="label">NUMERAÇÃO</div><div class="content">{nvol}</div></div>
             <div class="col w-15"><div class="label">PESO BRUTO</div><div class="content right">{peso_b}</div></div>
             <div class="col flex-1"><div class="label">PESO LÍQUIDO</div><div class="content right">{peso_l}</div></div>
         </div>
 
-        <div class="section-header">Dados do Produto / Serviço</div>
-        <div class="row" style="display:block">
+        <div class="section-header">DADOS DO PRODUTO / SERVIÇO</div>
+        <div class="row row-no-border">
             <table>
                 <thead>
                     <tr>
-                        <th>CÓD</th><th>DESCRIÇÃO</th><th>NCM</th><th>CST</th><th>CFOP</th><th>UNID</th><th>QTD</th>
-                        <th>V.UNIT</th><th>V.TOTAL</th><th>BC.ICMS</th><th>V.ICMS</th><th>V.IPI</th><th>%ICMS</th><th>%IPI</th>
+                        <th style="width:7%">CÓDIGO</th>
+                        <th style="width:30%">DESCRIÇÃO</th>
+                        <th style="width:6%">NCM</th>
+                        <th style="width:4%">CST</th>
+                        <th style="width:4%">CFOP</th>
+                        <th style="width:4%">UNID</th>
+                        <th style="width:6%">QTD</th>
+                        <th style="width:7%">V.UNIT</th>
+                        <th style="width:7%">V.TOTAL</th>
+                        <th style="width:7%">BC.ICMS</th>
+                        <th style="width:6%">V.ICMS</th>
+                        <th style="width:5%">V.IPI</th>
+                        <th style="width:4%">%ICMS</th>
+                        <th style="width:3%">%IPI</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -854,14 +922,20 @@ fn generate_danfe_html(data: &NfeData) -> String {
             </table>
         </div>
         
-        <div class="row" style="margin-top:10px; border:none">
-           <div class="col flex-1" style="border:none">
+        <div class="section-header" style="margin-top:auto">DADOS ADICIONAIS</div>
+        <div class="row">
+           <div class="col flex-1" style="height:25mm">
               <div class="label">INFORMAÇÕES COMPLEMENTARES</div>
-              <div class="content" style="border:1px solid #000; padding:5px; min-height:60px; font-size:8pt">{inf_cpl}</div>
+              <div class="content content-wrap" style="font-size:7pt">{inf_cpl}</div>
+           </div>
+           <div class="col w-30" style="height:25mm">
+              <div class="label">RESERVADO AO FISCO</div>
+              <div class="content"></div>
            </div>
         </div>
+        
         <div class="center no-print" style="margin-top:20px">
-            <button onclick="window.print()" style="padding:10px 20px; font-size:14pt; cursor:pointer">IMPRIMIR DANFE</button>
+            <button onclick="window.print()" style="padding:10px 30px; font-size:12pt; cursor:pointer; background:#333; color:#fff; border:none; border-radius:4px">IMPRIMIR / SALVAR PDF</button>
         </div>
     </div>
     {scripts}
@@ -880,6 +954,7 @@ fn generate_danfe_html(data: &NfeData) -> String {
         ie_emit = data.emitente.ie,
         dest_nome = data.destinatario.name,
         dest_cnpj = cnpj_dest,
+        dest_ie = data.destinatario.ie,
         dt_emi = data_emissao_fmt,
         dt_sai = data_sai_ent_fmt,
         dest_addr = dest_addr,
@@ -897,7 +972,6 @@ fn generate_danfe_html(data: &NfeData) -> String {
         ipi = data.totais.ipi,
         v_nf = data.totais.total_nfe,
         
-        // Blocos Transportador adicionados
         transp_nome = data.transporte.transportadora.name,
         mod_frete = data.transporte.mod_frete,
         rntrc = data.transporte.veiculo_rntrc,
@@ -926,8 +1000,6 @@ fn format_cnpj_cpf(value: &str) -> String {
     else if value.len() == 11 { format!("{}.{}.{}-{}", &value[0..3], &value[3..6], &value[6..9], &value[9..11]) }
     else { value.to_string() }
 }
-
-// ── Save HTML/XML to Temp ────────────────────────────────────────
 
 fn save_files_to_temp(html: &str, raw_xml: &str, access_key: &str) -> Result<String, String> {
     use rand::Rng;

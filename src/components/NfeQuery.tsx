@@ -212,7 +212,8 @@ export function NfeQuery() {
               )}
             </div>
             <p className="mt-1 text-[10px] text-emerald-400/80">
-              * Gera DANFE oficial com todos os itens e salva o XML.
+              * É necessário que o certificado digital esteja configurado como
+              exportável.
             </p>
           </div>
         )}
