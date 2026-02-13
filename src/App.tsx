@@ -24,15 +24,15 @@ type View =
   | "pdf";
 
 const VIEW_TITLES: Record<View, string> = {
-  dashboard: "Hub",
+  dashboard: "Adcontec Útil",
   tools: "Ferramentas",
   tasks: "Tarefas",
-  timer: "Timer",
+  timer: "Relógio",
   links: "Links Rápidos",
   certificates: "Certificados",
   status: "Status de Serviços",
   nfe: "Consulta NFe",
-  pdf: "PDF Tools",
+  pdf: "Ferramentas de PDF",
 };
 
 function App() {

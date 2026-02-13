@@ -20,10 +20,16 @@ interface ServiceResult extends ServiceDef {
   status: Status;
 }
 
+// Lógica da alteração:
+// 1. Removido: Receita Federal, Cloudflare, PIX (BCB)
+// 2. Adicionado: Empregador Web
 const SERVICES: ServiceDef[] = [
   { name: "eSocial", url: "https://www.esocial.gov.br" },
   { name: "Gov.br", url: "https://www.gov.br" },
-  { name: "Receita Federal", url: "https://www.gov.br/receitafederal" },
+  {
+    name: "Empregador Web",
+    url: "https://sd.maisemprego.mte.gov.br/sdweb/empregadorweb/",
+  },
   {
     name: "SEFAZ - NF-e",
     url: "https://www.nfe.fazenda.gov.br/portal/principal.aspx",
@@ -35,14 +41,6 @@ const SERVICES: ServiceDef[] = [
   {
     name: "NFSe Nacional",
     url: "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional",
-  },
-  {
-    name: "Cloudflare",
-    url: "https://www.cloudflarestatus.com",
-  },
-  {
-    name: "PIX (BCB)",
-    url: "https://www.bcb.gov.br/estabilidadefinanceira/pix",
   },
 ];
 
@@ -67,6 +65,7 @@ export function ServiceStatus() {
 
   const checkServices = async () => {
     setChecking(true);
+    // Inicializa todos como "pending" visualmente antes de começar
     const pending = SERVICES.map((s) => ({
       ...s,
       status: "pending" as Status,
@@ -75,10 +74,12 @@ export function ServiceStatus() {
 
     const completed: ServiceResult[] = [];
 
+    // Itera sobre a constante SERVICES atualizada
     for (const service of SERVICES) {
       let status: Status;
       try {
         const controller = new AbortController();
+        // Timeout de 15s para evitar travamento em serviços governamentais lentos
         const timer = setTimeout(() => controller.abort(), 15000);
 
         const response = await fetch(service.url, {
@@ -94,7 +95,8 @@ export function ServiceStatus() {
 
       completed.push({ ...service, status });
 
-      // Update progressively
+      // Atualiza a lista progressivamente para dar feedback visual ao usuário
+      // mantendo os próximos itens como "pending"
       setResults([
         ...completed,
         ...SERVICES.slice(completed.length).map((s) => ({
@@ -144,6 +146,7 @@ export function ServiceStatus() {
           <ul className="space-y-2">
             {results.map((r, i) => {
               const config = STATUS_CONFIG[r.status];
+              // Renderiza ícone de loading se estiver pendente, ou o ícone do status final
               const Icon =
                 r.status === "pending" ? (
                   <div className="w-4 h-4 border-2 border-gray-600 border-t-indigo-400 rounded-full animate-spin" />

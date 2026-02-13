@@ -79,7 +79,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     },
     {
       id: "timer",
-      title: "Timer",
+      title: "Relógio",
       description: "Cronômetro e contagem regressiva",
       icon: TimerIcon,
       view: "timer",
@@ -121,8 +121,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     },
     {
       id: "pdf",
-      title: "PDF Tools",
-      description: "Unir e dividir PDFs",
+      title: "Ferramentas de PDF",
+      description: "Unir, dividir e comprimir",
       icon: FileStack,
       view: "pdf",
     },
