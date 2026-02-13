@@ -1,6 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, ExternalLink, Link, Pencil, Check, X } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  Plus,
+  Trash2,
+  ExternalLink,
+  Link,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 import { getDb, type QuickLink } from "../lib/db";
 
@@ -40,10 +49,10 @@ export function QuickLinks() {
     }
     try {
       const db = await getDb();
-      await db.execute(
-        "INSERT INTO quick_links (title, url) VALUES (?, ?)",
-        [t, u],
-      );
+      await db.execute("INSERT INTO quick_links (title, url) VALUES (?, ?)", [
+        t,
+        u,
+      ]);
       setTitle("");
       setUrl("");
       await loadLinks();
@@ -97,9 +106,52 @@ export function QuickLinks() {
 
   const handleOpenLink = async (linkUrl: string) => {
     try {
-      await openUrl(linkUrl);
+      await invoke("open_external_link", {
+        url: linkUrl,
+        mode: "normal",
+      });
     } catch (err) {
       console.error("Failed to open link:", err);
+    }
+  };
+
+  const handleOpenAnonymousLink = async (linkUrl: string) => {
+    const chromeApi = (
+      globalThis as {
+        chrome?: {
+          windows?: {
+            create?: (options: { url: string; incognito: boolean }) => void;
+          };
+        };
+      }
+    ).chrome;
+
+    if (chromeApi?.windows?.create) {
+      try {
+        chromeApi.windows.create({
+          url: linkUrl,
+          incognito: true,
+        });
+        return;
+      } catch (err) {
+        console.error("Failed to open anonymous link via chrome API:", err);
+      }
+    }
+
+    try {
+      await invoke("open_external_link", {
+        url: linkUrl,
+        mode: "incognito",
+      });
+    } catch (err) {
+      console.error("Failed to open anonymous link:", err);
+      await message(
+        "Não foi possível abrir em modo anônimo. Verifique se Edge, Chrome, Brave ou Firefox estão instalados.",
+        {
+          title: "Falha ao abrir link",
+          kind: "error",
+        },
+      );
     }
   };
 
@@ -243,9 +295,17 @@ export function QuickLinks() {
                   <button
                     onClick={() => handleOpenLink(link.url)}
                     className="flex-shrink-0 text-gray-500 hover:text-indigo-400 transition-colors"
-                    title="Abrir link"
+                    title="Abrir link (Normal)"
                   >
                     <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleOpenAnonymousLink(link.url)}
+                    className="flex-shrink-0 px-2 py-1 rounded-md text-xs font-medium
+                               text-gray-300 bg-gray-800 hover:bg-gray-700 hover:text-white transition-colors"
+                    title="Abrir link (Anônimo)"
+                  >
+                    Anônimo
                   </button>
                   <button
                     onClick={() => startEdit(link)}

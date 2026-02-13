@@ -224,6 +224,243 @@ fn start_screen_capture() -> Result<(), String> {
     screen_capture_impl()
 }
 
+#[tauri::command]
+fn open_external_link(url: String, mode: Option<String>) -> Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL inválida: use http:// ou https://".into());
+    }
+
+    let selected_mode = mode
+        .as_deref()
+        .unwrap_or("normal")
+        .trim()
+        .to_ascii_lowercase();
+
+    match selected_mode.as_str() {
+        "incognito" | "private" => open_link_incognito_impl(&url),
+        _ => open_link_normal_impl(&url),
+    }
+}
+
+#[cfg(windows)]
+fn open_link_normal_impl(url: &str) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+        .map_err(|e| format!("Falha ao abrir link: {}", e))?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn open_link_normal_impl(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("Falha ao abrir link: {}", e))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("Falha ao abrir link: {}", e))?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Abertura de links não suportada neste sistema".into())
+}
+
+#[cfg(windows)]
+fn open_link_incognito_impl(url: &str) -> Result<(), String> {
+    fn spawn_private(browser: &str, flag: &str, url: &str) -> bool {
+        std::process::Command::new(browser)
+            .arg(flag)
+            .arg(url)
+            .spawn()
+            .is_ok()
+    }
+
+    fn parse_reg_value(stdout: &str, value_name: &str) -> Option<String> {
+        stdout
+            .lines()
+            .find(|line| line.trim_start().starts_with(value_name))
+            .and_then(|line| {
+                let mut parts = line.split_whitespace();
+                let name = parts.next()?;
+                if name != value_name {
+                    return None;
+                }
+                let reg_type = parts.next()?;
+                if !reg_type.starts_with("REG_") {
+                    return None;
+                }
+                let value = parts.collect::<Vec<_>>().join(" ").trim().to_string();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(value)
+                }
+            })
+    }
+
+    fn extract_executable_from_command(command: &str) -> Option<String> {
+        let trimmed = command.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('"') {
+            let end = rest.find('"')?;
+            return Some(rest[..end].to_string());
+        }
+
+        Some(trimmed.split_whitespace().next()?.to_string())
+    }
+
+    fn private_flag_for_exe(exe_path: &str) -> Option<&'static str> {
+        let exe = std::path::Path::new(exe_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        if exe.contains("edge") {
+            return Some("--inprivate");
+        }
+        if exe.contains("chrome") || exe.contains("brave") || exe.contains("vivaldi") {
+            return Some("--incognito");
+        }
+        if exe.contains("firefox") {
+            return Some("--private-window");
+        }
+        if exe.contains("opera") {
+            return Some("--private");
+        }
+        None
+    }
+
+    fn default_browser_executable() -> Option<String> {
+        let user_choice = std::process::Command::new("reg")
+            .args([
+                "query",
+                "HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice",
+                "/v",
+                "ProgId",
+            ])
+            .output()
+            .ok()?;
+        if !user_choice.status.success() {
+            return None;
+        }
+
+        let prog_id_output = String::from_utf8_lossy(&user_choice.stdout);
+        let prog_id = parse_reg_value(&prog_id_output, "ProgId")?;
+
+        let open_command = std::process::Command::new("reg")
+            .args([
+                "query",
+                &format!("HKCR\\{}\\shell\\open\\command", prog_id),
+                "/ve",
+            ])
+            .output()
+            .ok()?;
+        if !open_command.status.success() {
+            return None;
+        }
+
+        let command_output = String::from_utf8_lossy(&open_command.stdout);
+        let command_line = parse_reg_value(&command_output, "(Default)")?;
+        extract_executable_from_command(&command_line)
+    }
+
+    if let Some(default_exe) = default_browser_executable() {
+        if let Some(flag) = private_flag_for_exe(&default_exe) {
+            if spawn_private(&default_exe, flag, url) {
+                return Ok(());
+            }
+        } else {
+            return Err(
+                "Navegador padrão não reconhecido para modo anônimo. Defina Chrome, Edge, Brave, Firefox, Vivaldi ou Opera como padrão."
+                    .into(),
+            );
+        }
+    }
+
+    let env_candidates = [
+        ("PROGRAMFILES", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
+        ("PROGRAMFILES(X86)", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
+        ("LOCALAPPDATA", "Microsoft\\Edge\\Application\\msedge.exe", "--inprivate"),
+        ("PROGRAMFILES", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
+        ("PROGRAMFILES(X86)", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
+        ("LOCALAPPDATA", "Google\\Chrome\\Application\\chrome.exe", "--incognito"),
+        ("PROGRAMFILES", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
+        ("PROGRAMFILES(X86)", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
+        ("LOCALAPPDATA", "BraveSoftware\\Brave-Browser\\Application\\brave.exe", "--incognito"),
+        ("PROGRAMFILES", "Mozilla Firefox\\firefox.exe", "--private-window"),
+        ("PROGRAMFILES(X86)", "Mozilla Firefox\\firefox.exe", "--private-window"),
+        ("LOCALAPPDATA", "Mozilla Firefox\\firefox.exe", "--private-window"),
+    ];
+
+    for (env_var, relative_path, flag) in env_candidates {
+        if let Ok(base) = std::env::var(env_var) {
+            let browser_path = std::path::Path::new(&base).join(relative_path);
+            if browser_path.exists() && spawn_private(browser_path.to_string_lossy().as_ref(), flag, url) {
+                return Ok(());
+            }
+        }
+    }
+
+    let path_candidates = [
+        ("msedge", "--inprivate"),
+        ("msedge.exe", "--inprivate"),
+        ("chrome", "--incognito"),
+        ("chrome.exe", "--incognito"),
+        ("brave", "--incognito"),
+        ("brave.exe", "--incognito"),
+        ("firefox", "--private-window"),
+        ("firefox.exe", "--private-window"),
+    ];
+
+    for (browser, flag) in path_candidates {
+        if spawn_private(browser, flag, url) {
+            return Ok(());
+        }
+    }
+
+    Err(
+        "Não foi possível abrir em modo anônimo no navegador padrão. Verifique o navegador padrão e se ele está instalado corretamente."
+            .into(),
+    )
+}
+
+#[cfg(not(windows))]
+fn open_link_incognito_impl(url: &str) -> Result<(), String> {
+    let browsers = [
+        ("google-chrome", "--incognito"),
+        ("chromium", "--incognito"),
+        ("brave-browser", "--incognito"),
+        ("firefox", "--private-window"),
+    ];
+
+    for (browser, flag) in browsers {
+        if std::process::Command::new(browser)
+            .arg(flag)
+            .arg(url)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    Err("Não foi possível abrir em modo privado no sistema atual".into())
+}
+
 #[cfg(windows)]
 fn screen_capture_impl() -> Result<(), String> {
     std::process::Command::new("cmd")
@@ -249,6 +486,7 @@ pub fn run() {
             set_movable_mode,
             get_certificates,
             start_screen_capture,
+            open_external_link,
             nfe::query_nfe,
             nfe::open_danfe,
             nfe::download_danfe,
