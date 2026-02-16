@@ -1,12 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  FileSearch,
-  ExternalLink,
-  ShieldCheck,
-  RefreshCw,
-  ChevronDown,
-} from "lucide-react";
+import { FileSearch, ShieldCheck, RefreshCw, ChevronDown } from "lucide-react";
 import { cn } from "../lib/cn";
 
 // ... (UF_NAMES, formatCnpj, parseAccessKey mantidos iguais) ...
@@ -68,7 +62,6 @@ interface CertInfo {
 export function NfeQuery() {
   const [accessKeyRaw, setAccessKeyRaw] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [opened, setOpened] = useState(false);
   const [method, setMethod] = useState<"portal" | "cert">("cert"); // Padrão alterado para Cert (Melhor experiência)
   const [certs, setCerts] = useState<CertInfo[]>([]);
   const [selectedCert, setSelectedCert] = useState<string>("");
@@ -101,7 +94,6 @@ export function NfeQuery() {
 
   const handleQuery = async () => {
     setError(null);
-    setOpened(false);
     try {
       if (method === "portal") {
         await invoke("query_nfe_portal", { accessKey });
@@ -116,7 +108,6 @@ export function NfeQuery() {
         });
         await invoke("open_danfe", { filePath });
       }
-      setOpened(true);
     } catch (err) {
       setError(String(err));
     }

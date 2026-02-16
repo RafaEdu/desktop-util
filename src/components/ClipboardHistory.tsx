@@ -63,8 +63,8 @@ export function ClipboardHistory() {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-gray-900 rounded-lg border border-gray-800">
-      <div className="px-4 pt-3 pb-3 flex items-center justify-between border-b border-gray-800">
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="px-4 pt-3 pb-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ClipboardList className="w-4 h-4 text-indigo-400" />
           <p className="text-sm font-medium text-gray-200">Histórico (Win+V)</p>
@@ -72,52 +72,59 @@ export function ClipboardHistory() {
         {history.length > 0 && (
           <button
             onClick={clearHistory}
-            className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
           >
-            <Trash2 className="w-3 h-3" /> Limpar
+            <Trash2 className="w-3.5 h-3.5" /> Limpar
           </button>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <main className="flex-1 overflow-y-auto px-4 py-3">
         {history.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-gray-600">
-            <Clock className="w-8 h-8 mb-2 opacity-50" />
-            <p className="text-xs">O histórico está vazio.</p>
-            <p className="text-[10px] opacity-70">
+          <div className="flex flex-col items-center justify-center h-32 text-gray-600">
+            <Clock className="w-10 h-10 mb-2 opacity-40" />
+            <p className="text-sm">O histórico está vazio.</p>
+            <p className="text-xs opacity-70">
               Copie algo (Ctrl+C) para aparecer aqui.
             </p>
           </div>
         ) : (
-          history.map((text, i) => (
-            <div
-              key={i}
-              className="group flex items-center gap-3 p-3 rounded-md bg-gray-800/40 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 transition-all cursor-pointer"
-              onClick={() => handleCopy(text, i)}
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-300 font-mono line-clamp-2 break-all">
-                  {text}
-                </p>
-              </div>
-              <button
-                className={cn(
-                  "p-1.5 rounded-md transition-all opacity-0 group-hover:opacity-100",
-                  copiedIndex === i
-                    ? "bg-emerald-500/20 text-emerald-400 opacity-100"
-                    : "bg-gray-700 text-gray-400 hover:text-white",
-                )}
+          <ul className="space-y-2">
+            {history.map((text, i) => (
+              <li
+                key={i}
+                className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-gray-900 border-gray-800 hover:border-gray-700 transition-all duration-200"
               >
-                {copiedIndex === i ? (
-                  <Check className="w-3.5 h-3.5" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </button>
-            </div>
-          ))
+                <button
+                  onClick={() => handleCopy(text, i)}
+                  className="flex-1 min-w-0 text-left"
+                >
+                  <p className="text-sm text-gray-200 line-clamp-2 break-all font-mono">
+                    {text}
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => handleCopy(text, i)}
+                  className={cn(
+                    "flex-shrink-0 p-1.5 rounded-md transition-all duration-200 opacity-0 group-hover:opacity-100",
+                    copiedIndex === i
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 opacity-100"
+                      : "text-gray-500 hover:text-indigo-400",
+                  )}
+                  title={copiedIndex === i ? "Copiado" : "Copiar item"}
+                >
+                  {copiedIndex === i ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
+      </main>
     </div>
   );
 }

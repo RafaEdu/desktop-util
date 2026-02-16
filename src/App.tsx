@@ -11,6 +11,8 @@ import { NfeQuery } from "./components/NfeQuery";
 import { PdfTools } from "./components/PdfTools";
 import { Tasks } from "./components/Tasks";
 import { Timer } from "./components/Timer";
+import { SnippetManager } from "./components/SnippetManager";
+import { ClipboardHistory } from "./components/ClipboardHistory";
 
 type View =
   | "dashboard"
@@ -21,7 +23,9 @@ type View =
   | "certificates"
   | "status"
   | "nfe"
-  | "pdf";
+  | "pdf"
+  | "snippets"
+  | "clipboard";
 
 const VIEW_TITLES: Record<View, string> = {
   dashboard: "Adcontec Útil",
@@ -33,6 +37,8 @@ const VIEW_TITLES: Record<View, string> = {
   status: "Status de Serviços",
   nfe: "Consulta NFe",
   pdf: "Ferramentas de PDF",
+  snippets: "Textos Prontos",
+  clipboard: "Histórico (Win+V)",
 };
 
 function App() {
@@ -166,6 +172,8 @@ function App() {
       {activeView === "status" && <ServiceStatus />}
       {activeView === "nfe" && <NfeQuery />}
       {activeView === "pdf" && <PdfTools />}
+      {activeView === "snippets" && <SnippetManager />}
+      {activeView === "clipboard" && <ClipboardHistory />}
 
       {/* Footer */}
       <footer className="px-4 py-2 bg-gray-900 border-t border-gray-800">
