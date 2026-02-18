@@ -690,7 +690,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .tooltip("Util")
+                .tooltip("Adcontec Útil")
                 .on_menu_event(|app_handle, event| match event.id().as_ref() {
                     "toggle" => {
                         if let Some(window) = app_handle.get_webview_window("main") {

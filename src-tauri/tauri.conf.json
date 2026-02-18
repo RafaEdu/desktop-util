@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
-  "productName": "adcontec-util",
+  "productName": "Adcontec Útil",
   "version": "1.0.0",
   "identifier": "com.adcontec-util.app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "Util",
+        "title": "Adcontec Útil",
         "width": 420,
         "height": 600,
         "resizable": true,
