@@ -18,35 +18,30 @@ interface Snippet {
 }
 
 export function SnippetManager() {
-  const [snippets, setSnippets] = useState<Snippet[]>([]);
+  const [snippets, setSnippets] = useState<Snippet[]>(() => {
+    const saved = localStorage.getItem("desktop-util-snippets");
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    return [
+      {
+        id: "1",
+        title: "Bom dia",
+        content: "Bom dia, tudo bem? Como posso ajudar?",
+      },
+      {
+        id: "2",
+        title: "Encerramento",
+        content: "Agradecemos o contato. Tenha um ótimo dia!",
+      },
+    ];
+  });
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ title: string; content: string }>({
     title: "",
     content: "",
   });
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Carregar do localStorage ao iniciar
-  useEffect(() => {
-    const saved = localStorage.getItem("desktop-util-snippets");
-    if (saved) {
-      setSnippets(JSON.parse(saved));
-    } else {
-      // Dados iniciais de exemplo
-      setSnippets([
-        {
-          id: "1",
-          title: "Bom dia",
-          content: "Bom dia, tudo bem? Como posso ajudar?",
-        },
-        {
-          id: "2",
-          title: "Encerramento",
-          content: "Agradecemos o contato. Tenha um ótimo dia!",
-        },
-      ]);
-    }
-  }, []);
 
   // Salvar no localStorage sempre que mudar
   useEffect(() => {
@@ -99,17 +94,13 @@ export function SnippetManager() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-4 pt-3 pb-3 flex items-center justify-between border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <MessageSquareText className="w-4 h-4 text-indigo-400" />
-          <p className="text-sm font-medium text-gray-200">Textos Prontos</p>
-        </div>
+      <div className="px-4 pt-3 pb-3 flex items-center justify-end border-b border-gray-800">
         <button
           onClick={() => startEdit()}
-          className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
           title="Adicionar novo"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5" /> Adicionar
         </button>
       </div>
 

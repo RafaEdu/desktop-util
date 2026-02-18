@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ClipboardList, Copy, Trash2, Check, Clock } from "lucide-react";
+import { Copy, Trash2, Check, Clock } from "lucide-react";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { cn } from "../lib/cn";
 
@@ -64,20 +64,16 @@ export function ClipboardHistory() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-4 pt-3 pb-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ClipboardList className="w-4 h-4 text-indigo-400" />
-          <p className="text-sm font-medium text-gray-200">Histórico (Win+V)</p>
-        </div>
-        {history.length > 0 && (
+      {history.length > 0 && (
+        <div className="px-4 pt-3 pb-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-end">
           <button
             onClick={clearHistory}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Limpar
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <main className="flex-1 overflow-y-auto px-4 py-3">
         {history.length === 0 ? (
