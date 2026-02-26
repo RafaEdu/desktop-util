@@ -65,10 +65,10 @@ export function ClipboardHistory() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {history.length > 0 && (
-        <div className="px-4 pt-3 pb-3 bg-gray-900/50 border-b border-gray-800 flex items-center justify-end">
+        <div className="px-4 pt-3 pb-3 bg-surface/50 border-b border-edge flex items-center justify-end">
           <button
             onClick={clearHistory}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-fg-4 hover:text-red-400 hover:bg-field transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Limpar
           </button>
@@ -77,7 +77,7 @@ export function ClipboardHistory() {
 
       <main className="flex-1 overflow-y-auto px-4 py-3">
         {history.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-600">
+          <div className="flex flex-col items-center justify-center h-32 text-fg-6">
             <Clock className="w-10 h-10 mb-2 opacity-40" />
             <p className="text-sm">O histórico está vazio.</p>
             <p className="text-xs opacity-70">
@@ -89,13 +89,13 @@ export function ClipboardHistory() {
             {history.map((text, i) => (
               <li
                 key={i}
-                className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-gray-900 border-gray-800 hover:border-gray-700 transition-all duration-200"
+                className="group flex items-center gap-3 px-3 py-2.5 rounded-lg border bg-surface border-edge hover:border-edge-2 transition-all duration-200"
               >
                 <button
                   onClick={() => handleCopy(text, i)}
                   className="flex-1 min-w-0 text-left"
                 >
-                  <p className="text-sm text-gray-200 line-clamp-2 break-all font-mono">
+                  <p className="text-sm text-fg-2 line-clamp-2 break-all font-mono">
                     {text}
                   </p>
                 </button>
@@ -106,7 +106,7 @@ export function ClipboardHistory() {
                     "flex-shrink-0 p-1.5 rounded-md transition-all duration-200 opacity-0 group-hover:opacity-100",
                     copiedIndex === i
                       ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 opacity-100"
-                      : "text-gray-500 hover:text-indigo-400",
+                      : "text-fg-5 hover:text-indigo-400",
                   )}
                   title={copiedIndex === i ? "Copiado" : "Copiar item"}
                 >

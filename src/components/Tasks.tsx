@@ -149,7 +149,7 @@ export function Tasks() {
             "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             subTab === "active"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
           )}
         >
           Em Andamento
@@ -160,7 +160,7 @@ export function Tasks() {
             "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             subTab === "history"
               ? "bg-emerald-600/20 text-emerald-400 ring-1 ring-emerald-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
           )}
         >
           Histórico
@@ -169,7 +169,7 @@ export function Tasks() {
 
       {/* Add Form — only in active tab */}
       {subTab === "active" && (
-        <div className="px-4 pb-3 bg-gray-900/50 border-b border-gray-800">
+        <div className="px-4 pb-3 bg-surface/50 border-b border-edge">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -182,8 +182,8 @@ export function Tasks() {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="Adicionar nova tarefa..."
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                         text-gray-100 placeholder-gray-500
+              className="flex-1 bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm
+                         text-fg placeholder-fg-5
                          focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                          transition-all duration-200"
             />
@@ -194,7 +194,7 @@ export function Tasks() {
                 "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
                 newTitle.trim()
                   ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25"
-                  : "bg-gray-800 text-gray-600 cursor-not-allowed",
+                  : "bg-field text-fg-6 cursor-not-allowed",
               )}
             >
               <Plus className="w-4 h-4" />
@@ -211,7 +211,7 @@ export function Tasks() {
             <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : todos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-600">
+          <div className="flex flex-col items-center justify-center h-32 text-fg-6">
             <ListTodo className="w-10 h-10 mb-2 opacity-40" />
             <p className="text-sm">
               {subTab === "active"
@@ -227,8 +227,8 @@ export function Tasks() {
                 className={cn(
                   "group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all duration-200",
                   Number(todo.done) === 1
-                    ? "bg-gray-900/30 border-gray-800/50"
-                    : "bg-gray-900 border-gray-800 hover:border-gray-700",
+                    ? "bg-surface/30 border-edge/50"
+                    : "bg-surface border-edge hover:border-edge-2",
                 )}
               >
                 {/* Toggle Button */}
@@ -242,9 +242,9 @@ export function Tasks() {
                   }
                 >
                   {Number(todo.done) === 1 ? (
-                    <Undo2 className="w-4 h-4 text-gray-500 hover:text-indigo-400" />
+                    <Undo2 className="w-4 h-4 text-fg-5 hover:text-indigo-400" />
                   ) : (
-                    <Circle className="w-5 h-5 text-gray-600 hover:text-indigo-400" />
+                    <Circle className="w-5 h-5 text-fg-6 hover:text-indigo-400" />
                   )}
                 </button>
 
@@ -254,13 +254,13 @@ export function Tasks() {
                     className={cn(
                       "text-sm truncate transition-all duration-200",
                       Number(todo.done) === 1
-                        ? "line-through text-gray-600"
-                        : "text-gray-200",
+                        ? "line-through text-fg-6"
+                        : "text-fg-2",
                     )}
                   >
                     {todo.title}
                   </p>
-                  <p className="text-xs text-gray-600 mt-0.5">
+                  <p className="text-xs text-fg-6 mt-0.5">
                     Criado em {formatTs(todo.created_at)}
                   </p>
                   {Number(todo.done) === 1 && todo.completed_at && (
@@ -279,8 +279,8 @@ export function Tasks() {
                       className={cn(
                         "p-0.5 rounded transition-colors",
                         index === 0
-                          ? "text-gray-800 cursor-not-allowed"
-                          : "text-gray-600 hover:text-indigo-400",
+                          ? "text-fg-8 cursor-not-allowed"
+                          : "text-fg-6 hover:text-indigo-400",
                       )}
                       title="Mover para cima"
                     >
@@ -292,8 +292,8 @@ export function Tasks() {
                       className={cn(
                         "p-0.5 rounded transition-colors",
                         index === todos.length - 1
-                          ? "text-gray-800 cursor-not-allowed"
-                          : "text-gray-600 hover:text-indigo-400",
+                          ? "text-fg-8 cursor-not-allowed"
+                          : "text-fg-6 hover:text-indigo-400",
                       )}
                       title="Mover para baixo"
                     >
@@ -306,7 +306,7 @@ export function Tasks() {
                 <button
                   onClick={() => deleteTodo(todo.id)}
                   className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                             text-gray-600 hover:text-red-400"
+                             text-fg-6 hover:text-red-400"
                   title="Excluir tarefa"
                 >
                   <Trash2 className="w-4 h-4" />

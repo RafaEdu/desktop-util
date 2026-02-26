@@ -178,7 +178,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               }}
               className={cn(
                 "relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-200",
-                "bg-gray-900 border-gray-800 hover:border-indigo-500 hover:bg-gray-900/80",
+                "bg-surface border-edge hover:border-indigo-500 hover:bg-surface/80",
                 "group text-left",
               )}
             >
@@ -200,7 +200,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                   "absolute top-2 right-2 p-1 rounded transition-all duration-200",
                   isFav
                     ? "text-amber-400"
-                    : "text-gray-700 opacity-0 group-hover:opacity-100 hover:text-amber-400",
+                    : "text-fg-7 opacity-0 group-hover:opacity-100 hover:text-amber-400",
                 )}
                 title={
                   isFav ? "Remover dos favoritos" : "Adicionar aos favoritos"
@@ -209,14 +209,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 <Star className={cn("w-3.5 h-3.5", isFav && "fill-current")} />
               </span>
 
-              <Icon className="w-8 h-8 text-indigo-400" />
+              <Icon className="w-8 h-8 text-accent" />
               <div className="text-center">
-                <p className="text-sm font-medium text-gray-200">
-                  {card.title}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {card.description}
-                </p>
+                <p className="text-sm font-medium text-fg-2">{card.title}</p>
+                <p className="text-xs text-fg-5 mt-0.5">{card.description}</p>
               </div>
             </button>
           );

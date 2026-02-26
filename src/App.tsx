@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Wrench, Pin, PinOff, Minus, ArrowLeft } from "lucide-react";
+import { Wrench, Pin, PinOff, Minus, ArrowLeft, Sun, Moon } from "lucide-react";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { showWindowAboveTray } from "./lib/window";
@@ -14,6 +14,7 @@ import { Timer } from "./components/Timer";
 import { SnippetManager } from "./components/SnippetManager";
 import { ClipboardHistory } from "./components/ClipboardHistory";
 import { ClientManager } from "./components/ClientManager";
+import { useTheme } from "./lib/theme";
 
 type View =
   | "dashboard"
@@ -49,6 +50,7 @@ function App() {
   const [movableMode, setMovableMode] = useState(() => {
     return localStorage.getItem("movableMode") === "true";
   });
+  const { theme, toggleTheme } = useTheme();
 
   // ── Initial window setup on mount ──────────────────────────
   useEffect(() => {
@@ -121,21 +123,21 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="min-h-screen bg-base text-fg flex flex-col">
       {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800 px-4 py-2.5">
+      <header className="bg-surface border-b border-edge px-4 py-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {activeView !== "dashboard" ? (
               <button
                 onClick={() => setActiveView("dashboard")}
-                className="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+                className="p-1 rounded text-fg-4 hover:text-fg-2 hover:bg-field transition-colors"
                 title="Voltar ao Dashboard"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             ) : (
-              <Wrench className="w-5 h-5 text-indigo-400" />
+              <Wrench className="w-5 h-5 text-accent" />
             )}
             <h1 className="text-lg font-bold tracking-tight">
               {VIEW_TITLES[activeView]}
@@ -146,7 +148,7 @@ function App() {
           <div className="flex items-center gap-1">
             <button
               onClick={toggleMovableMode}
-              className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+              className="p-1.5 rounded text-fg-5 hover:text-fg-3 hover:bg-field transition-colors"
               title={movableMode ? "Fixar na bandeja" : "Modo livre"}
             >
               {movableMode ? (
@@ -156,8 +158,19 @@ function App() {
               )}
             </button>
             <button
+              onClick={toggleTheme}
+              className="p-1.5 rounded text-fg-5 hover:text-fg-3 hover:bg-field transition-colors"
+              title={theme === "dark" ? "Modo claro" : "Modo escuro"}
+            >
+              {theme === "dark" ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
+            <button
               onClick={hideWindow}
-              className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+              className="p-1.5 rounded text-fg-5 hover:text-fg-3 hover:bg-field transition-colors"
               title="Minimizar para bandeja"
             >
               <Minus className="w-4 h-4" />
@@ -180,8 +193,8 @@ function App() {
       {activeView === "clients" && <ClientManager />}
 
       {/* Footer */}
-      <footer className="px-4 py-2 bg-gray-900 border-t border-gray-800">
-        <p className="text-xs text-gray-600 text-center">
+      <footer className="px-4 py-2 bg-surface border-t border-edge">
+        <p className="text-xs text-fg-6 text-center">
           Clique no ícone da bandeja para mostrar/ocultar
         </p>
       </footer>

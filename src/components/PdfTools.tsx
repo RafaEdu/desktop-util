@@ -37,7 +37,7 @@ export function PdfTools() {
             "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             activeTab === "merge"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
           )}
         >
           <Merge className="w-3.5 h-3.5" />
@@ -49,7 +49,7 @@ export function PdfTools() {
             "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             activeTab === "split"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
           )}
         >
           <Split className="w-3.5 h-3.5" />
@@ -61,7 +61,7 @@ export function PdfTools() {
             "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             activeTab === "compress"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
           )}
         >
           <Shrink className="w-3.5 h-3.5" />
@@ -149,7 +149,7 @@ function MergePdf() {
       {/* Add files button */}
       <button
         onClick={addFiles}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
       >
         <Plus className="w-4 h-4" />
         <span className="text-xs font-medium">Adicionar PDFs</span>
@@ -163,11 +163,11 @@ function MergePdf() {
             return (
               <div
                 key={`${file}-${i}`}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 group"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-edge group"
               >
                 <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <span
-                  className="flex-1 text-xs text-gray-300 truncate"
+                  className="flex-1 text-xs text-fg-3 truncate"
                   title={file}
                 >
                   {name}
@@ -176,7 +176,7 @@ function MergePdf() {
                   <button
                     onClick={() => moveFile(i, "up")}
                     disabled={i === 0}
-                    className="p-1 rounded text-gray-600 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="p-1 rounded text-fg-6 hover:text-fg-3 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     title="Mover para cima"
                   >
                     <ChevronUp className="w-3.5 h-3.5" />
@@ -184,14 +184,14 @@ function MergePdf() {
                   <button
                     onClick={() => moveFile(i, "down")}
                     disabled={i === files.length - 1}
-                    className="p-1 rounded text-gray-600 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="p-1 rounded text-fg-6 hover:text-fg-3 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     title="Mover para baixo"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => removeFile(i)}
-                    className="p-1 rounded text-gray-600 hover:text-red-400 transition-colors"
+                    className="p-1 rounded text-fg-6 hover:text-red-400 transition-colors"
                     title="Remover"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -205,15 +205,13 @@ function MergePdf() {
 
       {/* Output name */}
       <div className="space-y-1">
-        <label className="text-xs text-gray-500">
-          Nome do arquivo de saída
-        </label>
+        <label className="text-xs text-fg-5">Nome do arquivo de saída</label>
         <input
           type="text"
           value={outputName}
           onChange={(e) => setOutputName(e.target.value)}
           placeholder="merged"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+          className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
         />
       </div>
 
@@ -224,7 +222,7 @@ function MergePdf() {
         className={cn(
           "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors",
           loading || files.length < 2
-            ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+            ? "bg-field text-fg-6 cursor-not-allowed"
             : "bg-indigo-600 text-white hover:bg-indigo-500",
         )}
       >
@@ -347,7 +345,7 @@ function SplitPdf() {
       {/* File selection */}
       <button
         onClick={selectFile}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
       >
         <FolderOpen className="w-4 h-4" />
         <span className="text-xs font-medium">
@@ -357,7 +355,7 @@ function SplitPdf() {
 
       {/* Split strategy */}
       <div className="space-y-1.5">
-        <label className="text-xs text-gray-500">Estratégia de divisão</label>
+        <label className="text-xs text-fg-5">Estratégia de divisão</label>
         <div className="space-y-1">
           {splitModes.map((mode) => (
             <label
@@ -366,7 +364,7 @@ function SplitPdf() {
                 "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
                 splitMode === mode.id
                   ? "border-indigo-500 bg-indigo-600/10 text-indigo-400"
-                  : "border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700",
+                  : "border-edge bg-surface text-fg-4 hover:border-edge-2",
               )}
             >
               <input
@@ -382,7 +380,7 @@ function SplitPdf() {
                   "w-3 h-3 rounded-full border-2 shrink-0",
                   splitMode === mode.id
                     ? "border-indigo-400 bg-indigo-400"
-                    : "border-gray-600",
+                    : "border-edge-3",
                 )}
               />
               <span className="text-xs">{mode.label}</span>
@@ -394,7 +392,7 @@ function SplitPdf() {
       {/* Conditional inputs */}
       {splitMode === "afterPages" && (
         <div className="space-y-1">
-          <label className="text-xs text-gray-500">
+          <label className="text-xs text-fg-5">
             Dividir após as páginas (separado por vírgula)
           </label>
           <input
@@ -402,27 +400,27 @@ function SplitPdf() {
             value={afterPages}
             onChange={(e) => setAfterPages(e.target.value)}
             placeholder="Ex: 3, 7, 12"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+            className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
           />
         </div>
       )}
 
       {splitMode === "everyN" && (
         <div className="space-y-1">
-          <label className="text-xs text-gray-500">Páginas por grupo</label>
+          <label className="text-xs text-fg-5">Páginas por grupo</label>
           <input
             type="number"
             min="1"
             value={everyN}
             onChange={(e) => setEveryN(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+            className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
           />
         </div>
       )}
 
       {/* Prefix */}
       <div className="space-y-1">
-        <label className="text-xs text-gray-500">
+        <label className="text-xs text-fg-5">
           Prefixo do nome dos arquivos
         </label>
         <input
@@ -430,7 +428,7 @@ function SplitPdf() {
           value={prefix}
           onChange={(e) => setPrefix(e.target.value)}
           placeholder="split"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
+          className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200"
         />
       </div>
 
@@ -441,7 +439,7 @@ function SplitPdf() {
         className={cn(
           "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors",
           loading || !file
-            ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+            ? "bg-field text-fg-6 cursor-not-allowed"
             : "bg-indigo-600 text-white hover:bg-indigo-500",
         )}
       >
@@ -566,7 +564,7 @@ function CompressPdf() {
       {/* File selection */}
       <button
         onClick={selectFile}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-gray-700 text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
       >
         <FolderOpen className="w-4 h-4" />
         <span className="text-xs font-medium">
@@ -576,24 +574,20 @@ function CompressPdf() {
 
       {/* PDF Info */}
       {pdfInfo && (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 space-y-2">
-          <h3 className="text-xs font-medium text-gray-300">
-            Informações do PDF
-          </h3>
+        <div className="bg-surface border border-edge rounded-lg p-3 space-y-2">
+          <h3 className="text-xs font-medium text-fg-3">Informações do PDF</h3>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <span className="text-gray-500">Tamanho:</span>
-              <span className="ml-1 text-gray-200">
-                {formatSize(pdfInfo.size)}
-              </span>
+              <span className="text-fg-5">Tamanho:</span>
+              <span className="ml-1 text-fg-2">{formatSize(pdfInfo.size)}</span>
             </div>
             <div>
-              <span className="text-gray-500">Páginas:</span>
-              <span className="ml-1 text-gray-200">{pdfInfo.page_count}</span>
+              <span className="text-fg-5">Páginas:</span>
+              <span className="ml-1 text-fg-2">{pdfInfo.page_count}</span>
             </div>
             <div className="col-span-2">
-              <span className="text-gray-500">Criado em:</span>
-              <span className="ml-1 text-gray-200">{pdfInfo.created}</span>
+              <span className="text-fg-5">Criado em:</span>
+              <span className="ml-1 text-fg-2">{pdfInfo.created}</span>
             </div>
           </div>
         </div>
@@ -601,7 +595,7 @@ function CompressPdf() {
 
       {/* Compression level */}
       <div className="space-y-1.5">
-        <label className="text-xs text-gray-500">Nível de Compressão</label>
+        <label className="text-xs text-fg-5">Nível de Compressão</label>
         <div className="space-y-1">
           {compressionLevels.map((level) => (
             <label
@@ -610,7 +604,7 @@ function CompressPdf() {
                 "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors",
                 compressionLevel === level.id
                   ? "border-indigo-500 bg-indigo-600/10 text-indigo-400"
-                  : "border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700",
+                  : "border-edge bg-surface text-fg-4 hover:border-edge-2",
               )}
             >
               <input
@@ -626,12 +620,12 @@ function CompressPdf() {
                   "w-3 h-3 rounded-full border-2 shrink-0",
                   compressionLevel === level.id
                     ? "border-indigo-400 bg-indigo-400"
-                    : "border-gray-600",
+                    : "border-edge-3",
                 )}
               />
               <div className="flex-1">
                 <span className="text-xs font-medium">{level.label}</span>
-                <p className="text-xs text-gray-500">{level.desc}</p>
+                <p className="text-xs text-fg-5">{level.desc}</p>
               </div>
             </label>
           ))}
@@ -645,7 +639,7 @@ function CompressPdf() {
         className={cn(
           "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors",
           loading || !file
-            ? "bg-gray-800 text-gray-600 cursor-not-allowed"
+            ? "bg-field text-fg-6 cursor-not-allowed"
             : "bg-indigo-600 text-white hover:bg-indigo-500",
         )}
       >
@@ -661,25 +655,25 @@ function CompressPdf() {
           </h3>
           <div className="text-xs space-y-1">
             <div>
-              <span className="text-gray-400">Tamanho original:</span>
-              <span className="ml-1 text-gray-200">
+              <span className="text-fg-4">Tamanho original:</span>
+              <span className="ml-1 text-fg-2">
                 {formatSize(pdfInfo!.size)}
               </span>
             </div>
             <div>
-              <span className="text-gray-400">Novo tamanho:</span>
-              <span className="ml-1 text-gray-200">
+              <span className="text-fg-4">Novo tamanho:</span>
+              <span className="ml-1 text-fg-2">
                 {formatSize(success.newSize)}
               </span>
             </div>
             <div>
-              <span className="text-gray-400">Redução:</span>
+              <span className="text-fg-4">Redução:</span>
               <span className="ml-1 text-emerald-400 font-medium">
                 {success.reductionPercent.toFixed(1)}%
               </span>
             </div>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-fg-5">
             Arquivo comprimido salvo com sucesso.
           </p>
         </div>

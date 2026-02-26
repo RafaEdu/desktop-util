@@ -83,7 +83,7 @@ function Stopwatch() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Display */}
       <div className="flex items-center justify-center py-8">
-        <span className="text-5xl font-mono font-bold text-gray-100 tabular-nums tracking-tight">
+        <span className="text-5xl font-mono font-bold text-fg tabular-nums tracking-tight">
           {formatElapsed(elapsed)}
         </span>
       </div>
@@ -114,7 +114,7 @@ function Stopwatch() {
           <button
             onClick={handleLap}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium
-                       bg-gray-800 hover:bg-gray-700 text-gray-300 transition-all duration-200"
+                       bg-field hover:bg-subtle text-fg-3 transition-all duration-200"
           >
             <Flag className="w-4 h-4" />
             Volta
@@ -125,7 +125,7 @@ function Stopwatch() {
           <button
             onClick={handleReset}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium
-                       bg-gray-800 hover:bg-gray-700 text-gray-300 transition-all duration-200"
+                       bg-field hover:bg-subtle text-fg-3 transition-all duration-200"
           >
             <RotateCcw className="w-4 h-4" />
             Resetar
@@ -137,12 +137,12 @@ function Stopwatch() {
       {laps.length > 0 && (
         <div className="flex-1 overflow-y-auto px-2">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-gray-500 font-medium">
+            <p className="text-xs text-fg-5 font-medium">
               Voltas ({laps.length})
             </p>
             <button
               onClick={() => setLaps([])}
-              className="text-gray-600 hover:text-red-400 transition-colors"
+              className="text-fg-6 hover:text-red-400 transition-colors"
               title="Limpar voltas"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -156,15 +156,15 @@ function Stopwatch() {
               return (
                 <li
                   key={i}
-                  className="flex items-center justify-between px-3 py-1.5 rounded-md bg-gray-900 border border-gray-800 text-sm"
+                  className="flex items-center justify-between px-3 py-1.5 rounded-md bg-surface border border-edge text-sm"
                 >
-                  <span className="text-gray-500 text-xs font-medium">
+                  <span className="text-fg-5 text-xs font-medium">
                     #{pad2(lapNum)}
                   </span>
-                  <span className="text-gray-400 font-mono text-xs">
+                  <span className="text-fg-4 font-mono text-xs">
                     +{formatElapsed(diff)}
                   </span>
-                  <span className="text-gray-200 font-mono">
+                  <span className="text-fg-2 font-mono">
                     {formatElapsed(lapMs)}
                   </span>
                 </li>
@@ -324,8 +324,8 @@ function Countdown({ onBack }: { onBack: () => void }) {
         className={cn(
           "flex items-center gap-1 px-3 py-1.5 text-xs transition-colors mb-2",
           isRunning
-            ? "text-gray-700 cursor-not-allowed"
-            : "text-gray-500 hover:text-gray-300",
+            ? "text-fg-7 cursor-not-allowed"
+            : "text-fg-5 hover:text-fg-3",
         )}
       >
         <ChevronLeft className="w-3.5 h-3.5" />
@@ -334,17 +334,15 @@ function Countdown({ onBack }: { onBack: () => void }) {
 
       {/* Alert Name */}
       <div className="px-4 mb-3">
-        <label className="block text-xs text-gray-500 mb-1">
-          Nome do Alerta
-        </label>
+        <label className="block text-xs text-fg-5 mb-1">Nome do Alerta</label>
         <input
           type="text"
           value={alertName}
           onChange={(e) => setAlertName(e.target.value)}
           placeholder="Ex: Reunião, Pausa..."
           disabled={isRunning}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                     text-gray-100 placeholder-gray-500
+          className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm
+                     text-fg placeholder-fg-5
                      focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                      disabled:opacity-50 transition-all duration-200"
         />
@@ -359,7 +357,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
             "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             inputMode === "duration"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
             isRunning && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -373,7 +371,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
             "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
             inputMode === "time"
               ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
-              : "text-gray-500 hover:text-gray-300 hover:bg-gray-800",
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
             isRunning && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -387,9 +385,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
         {inputMode === "duration" ? (
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">
-                Minutos
-              </label>
+              <label className="block text-xs text-fg-5 mb-1">Minutos</label>
               <input
                 type="number"
                 min={0}
@@ -399,15 +395,13 @@ function Countdown({ onBack }: { onBack: () => void }) {
                   setMinutes(Math.max(0, parseInt(e.target.value) || 0))
                 }
                 disabled={isRunning}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-center
-                           text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-center
+                           text-fg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                            disabled:opacity-50 transition-all duration-200"
               />
             </div>
             <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1">
-                Segundos
-              </label>
+              <label className="block text-xs text-fg-5 mb-1">Segundos</label>
               <input
                 type="number"
                 min={0}
@@ -419,27 +413,25 @@ function Countdown({ onBack }: { onBack: () => void }) {
                   )
                 }
                 disabled={isRunning}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-center
-                           text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm text-center
+                           text-fg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                            disabled:opacity-50 transition-all duration-200"
               />
             </div>
           </div>
         ) : (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              Alertar às
-            </label>
+            <label className="block text-xs text-fg-5 mb-1">Alertar às</label>
             <input
               type="time"
               value={targetTime}
               onChange={(e) => setTargetTime(e.target.value)}
               disabled={isRunning}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                         text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+              className="w-full bg-field border border-edge-2 rounded-lg px-3 py-2 text-sm
+                         text-fg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
                          disabled:opacity-50 transition-all duration-200"
             />
-            <p className="text-xs text-gray-600 mt-1">
+            <p className="text-xs text-fg-6 mt-1">
               Se o horário já passou hoje, será agendado para amanhã.
             </p>
           </div>
@@ -454,7 +446,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
             "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-200 w-full justify-center",
             silentMode
               ? "bg-amber-600/20 text-amber-400 ring-1 ring-amber-500/30"
-              : "bg-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-700",
+              : "bg-field text-fg-4 hover:text-fg-2 hover:bg-subtle",
           )}
         >
           {silentMode ? (
@@ -480,7 +472,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
               fill="none"
               stroke="currentColor"
               strokeWidth="3"
-              className="text-gray-800"
+              className="text-fg-8"
             />
             <circle
               cx="50"
@@ -498,7 +490,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
               )}
             />
           </svg>
-          <span className="text-3xl font-mono font-bold text-gray-100 tabular-nums">
+          <span className="text-3xl font-mono font-bold text-fg tabular-nums">
             {displayTime}
           </span>
         </div>
@@ -514,7 +506,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
               "flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
               canStart && !finished
                 ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25"
-                : "bg-gray-800 text-gray-600 cursor-not-allowed",
+                : "bg-field text-fg-6 cursor-not-allowed",
             )}
           >
             <Play className="w-4 h-4" />
@@ -536,8 +528,8 @@ function Countdown({ onBack }: { onBack: () => void }) {
           className={cn(
             "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
             remaining > 0 || isRunning || finished
-              ? "bg-gray-800 hover:bg-gray-700 text-gray-300"
-              : "bg-gray-800 text-gray-600 cursor-not-allowed",
+              ? "bg-field hover:bg-subtle text-fg-3"
+              : "bg-field text-fg-6 cursor-not-allowed",
           )}
         >
           <RotateCcw className="w-4 h-4" />
@@ -549,9 +541,7 @@ function Countdown({ onBack }: { onBack: () => void }) {
       {finished && (
         <div className="mt-3 text-center">
           <p className="text-sm text-emerald-400 font-medium">
-            {alertName
-              ? `"${alertName}" — Tempo esgotado!`
-              : "Tempo esgotado!"}
+            {alertName ? `"${alertName}" — Tempo esgotado!` : "Tempo esgotado!"}
           </p>
         </div>
       )}
@@ -570,11 +560,11 @@ export function Timer() {
       {view === "stopwatch" ? (
         <>
           <Stopwatch />
-          <div className="pt-3 border-t border-gray-800 mt-auto">
+          <div className="pt-3 border-t border-edge mt-auto">
             <button
               onClick={() => setView("countdown")}
               className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg text-sm font-medium
-                         bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-all duration-200"
+                         bg-field hover:bg-subtle text-fg-4 hover:text-fg-2 transition-all duration-200"
             >
               <TimerIcon className="w-4 h-4" />
               Contagem Regressiva

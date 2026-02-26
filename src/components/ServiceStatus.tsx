@@ -55,7 +55,7 @@ const STATUS_CONFIG: Record<
     color: "text-amber-400",
     label: "Instável",
   },
-  pending: { icon: Activity, color: "text-gray-500", label: "Verificando..." },
+  pending: { icon: Activity, color: "text-fg-5", label: "Verificando..." },
 };
 
 export function ServiceStatus() {
@@ -114,9 +114,7 @@ export function ServiceStatus() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-3 pb-3 flex items-center justify-between">
-        <p className="text-xs text-gray-500">
-          Status de serviços governamentais
-        </p>
+        <p className="text-xs text-fg-5">Status de serviços governamentais</p>
         <button
           onClick={checkServices}
           disabled={checking}
@@ -136,7 +134,7 @@ export function ServiceStatus() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto px-4 py-2">
         {!checked && !checking ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-600">
+          <div className="flex flex-col items-center justify-center h-32 text-fg-6">
             <Activity className="w-10 h-10 mb-2 opacity-40" />
             <p className="text-sm">
               Clique em "Verificar" para checar o status dos serviços.
@@ -149,7 +147,7 @@ export function ServiceStatus() {
               // Renderiza ícone de loading se estiver pendente, ou o ícone do status final
               const Icon =
                 r.status === "pending" ? (
-                  <div className="w-4 h-4 border-2 border-gray-600 border-t-indigo-400 rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-2 border-edge-3 border-t-indigo-400 rounded-full animate-spin" />
                 ) : (
                   <config.icon className={cn("w-4 h-4", config.color)} />
                 );
@@ -158,12 +156,12 @@ export function ServiceStatus() {
                 <li
                   key={i}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg border
-                             bg-gray-900 border-gray-800 transition-all duration-200"
+                             bg-surface border-edge transition-all duration-200"
                 >
                   {Icon}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-200">{r.name}</p>
-                    <p className="text-xs text-gray-500 truncate">{r.url}</p>
+                    <p className="text-sm text-fg-2">{r.name}</p>
+                    <p className="text-xs text-fg-5 truncate">{r.url}</p>
                   </div>
                   <span className={cn("text-xs font-medium", config.color)}>
                     {config.label}

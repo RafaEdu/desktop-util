@@ -1,6 +1,56 @@
 @import "tailwindcss";
 
+/* ── Theme Design Tokens ───────────────────────────────── */
+
+@theme {
+  /* Surfaces (backgrounds) */
+  --color-base: var(--t-base);
+  --color-surface: var(--t-surface);
+  --color-field: var(--t-field);
+  --color-subtle: var(--t-subtle);
+
+  /* Foreground (text) */
+  --color-fg: var(--t-fg);
+  --color-fg-2: var(--t-fg-2);
+  --color-fg-3: var(--t-fg-3);
+  --color-fg-4: var(--t-fg-4);
+  --color-fg-5: var(--t-fg-5);
+  --color-fg-6: var(--t-fg-6);
+  --color-fg-7: var(--t-fg-7);
+  --color-fg-8: var(--t-fg-8);
+
+  /* Borders */
+  --color-edge: var(--t-edge);
+  --color-edge-2: var(--t-edge-2);
+  --color-edge-3: var(--t-edge-3);
+
+  /* Accent */
+  --color-accent: var(--t-accent);
+}
+
+/* ── Dark Theme (default) ──────────────────────────────── */
+
 :root {
+  --t-base: #030712;
+  --t-surface: #111827;
+  --t-field: #1f2937;
+  --t-subtle: #374151;
+
+  --t-fg: #f3f4f6;
+  --t-fg-2: #e5e7eb;
+  --t-fg-3: #d1d5db;
+  --t-fg-4: #9ca3af;
+  --t-fg-5: #6b7280;
+  --t-fg-6: #4b5563;
+  --t-fg-7: #374151;
+  --t-fg-8: #1f2937;
+
+  --t-edge: #1f2937;
+  --t-edge-2: #374151;
+  --t-edge-3: #4b5563;
+
+  --t-accent: #818cf8;
+
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
@@ -10,4 +60,28 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* ── Light Theme ───────────────────────────────────────── */
+
+[data-theme="light"] {
+  --t-base: #f9fafb;
+  --t-surface: #ffffff;
+  --t-field: #f3f4f6;
+  --t-subtle: #e5e7eb;
+
+  --t-fg: #111827;
+  --t-fg-2: #374151;
+  --t-fg-3: #4b5563;
+  --t-fg-4: #6b7280;
+  --t-fg-5: #9ca3af;
+  --t-fg-6: #9ca3af;
+  --t-fg-7: #d1d5db;
+  --t-fg-8: #e5e7eb;
+
+  --t-edge: #e5e7eb;
+  --t-edge-2: #d1d5db;
+  --t-edge-3: #9ca3af;
+
+  --t-accent: #4f46e5;
 }
