@@ -245,6 +245,106 @@ pub fn delete_entry(path: String, is_dir: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dest_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copy_paths_to_directory(source_paths: Vec<String>, dest_dir: String) -> Result<(), String> {
+    let validated_dest = validate_path(&dest_dir)?;
+
+    if !validated_dest.is_dir() {
+        return Err("Destino não é um diretório válido".into());
+    }
+
+    let mut errors = Vec::new();
+
+    for source in &source_paths {
+        let source_path = PathBuf::from(source);
+
+        if !source_path.exists() {
+            errors.push(format!("'{}' não encontrado", source));
+            continue;
+        }
+
+        let file_name = match source_path.file_name() {
+            Some(name) => name.to_owned(),
+            None => {
+                errors.push(format!("Não foi possível determinar o nome de '{}'", source));
+                continue;
+            }
+        };
+
+        let dest_path = validated_dest.join(&file_name);
+
+        if dest_path.exists() {
+            errors.push(format!(
+                "'{}' já existe no destino",
+                file_name.to_string_lossy()
+            ));
+            continue;
+        }
+
+        if source_path.is_dir() {
+            if let Err(e) = copy_dir_recursive(&source_path, &dest_path) {
+                errors.push(format!(
+                    "Falha ao copiar pasta '{}': {}",
+                    file_name.to_string_lossy(),
+                    e
+                ));
+            }
+        } else {
+            if let Err(e) = std::fs::copy(&source_path, &dest_path) {
+                errors.push(format!(
+                    "Falha ao copiar '{}': {}",
+                    file_name.to_string_lossy(),
+                    e
+                ));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
+}
+
+#[tauri::command]
+pub fn create_directory(parent_path: String, folder_name: String) -> Result<(), String> {
+    let validated_parent = validate_path(&parent_path)?;
+
+    if !validated_parent.is_dir() {
+        return Err("Caminho pai não é um diretório válido".into());
+    }
+
+    if folder_name.contains('\\') || folder_name.contains('/') || folder_name.contains('\0') {
+        return Err("Nome inválido: não pode conter barras ou caracteres nulos".into());
+    }
+
+    let new_path = validated_parent.join(&folder_name);
+
+    if new_path.exists() {
+        return Err(format!("Já existe um item com o nome '{}'", folder_name));
+    }
+
+    std::fs::create_dir(&new_path)
+        .map_err(|e| format!("Falha ao criar pasta: {}", e))?;
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn open_file(path: String) -> Result<(), String> {
     let validated = validate_path(&path)?;

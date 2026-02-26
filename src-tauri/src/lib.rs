@@ -621,6 +621,8 @@ pub fn run() {
             client_folders::move_entry,
             client_folders::delete_entry,
             client_folders::open_file,
+            client_folders::copy_paths_to_directory,
+            client_folders::create_directory,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())

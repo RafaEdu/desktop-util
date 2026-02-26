@@ -18,8 +18,12 @@ import {
   Trash2,
   X,
   FolderMinus,
+  FolderPlus,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getDb, ClientFolder } from "../lib/db";
 import { cn } from "../lib/cn";
 
@@ -124,6 +128,14 @@ export function ClientManager() {
     name: string;
   } | null>(null);
 
+  // Drag and drop
+  const [isDragging, setIsDragging] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
+
+  // New folder dialog
+  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+
   // ── Load saved folders from DB ──
   const loadFolders = useCallback(async () => {
     try {
@@ -156,6 +168,64 @@ export function ClientManager() {
       return () => document.removeEventListener("mousedown", handleClick);
     }
   }, [contextMenu]);
+
+  // ── Drag and drop from OS ──
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        if (viewMode === "explorer" && currentPath) {
+          setIsDragging(true);
+        }
+      } else if (event.payload.type === "leave") {
+        setIsDragging(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragging(false);
+        if (
+          viewMode === "explorer" &&
+          currentPath &&
+          event.payload.paths.length > 0
+        ) {
+          handleDrop(event.payload.paths);
+        }
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  });
+
+  const handleDrop = async (paths: string[]) => {
+    setIsCopying(true);
+    setError(null);
+    try {
+      await invoke("copy_paths_to_directory", {
+        sourcePaths: paths,
+        destDir: currentPath,
+      });
+      await refreshDirectory();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  // ── Create new folder ──
+  const executeCreateFolder = async () => {
+    if (!newFolderName.trim() || !currentPath) return;
+    try {
+      await invoke("create_directory", {
+        parentPath: currentPath,
+        folderName: newFolderName.trim(),
+      });
+      setShowNewFolderDialog(false);
+      setNewFolderName("");
+      await refreshDirectory();
+    } catch (err) {
+      setError(String(err));
+    }
+  };
 
   // ── Open explorer for a folder ──
   const openExplorer = async (path: string) => {
@@ -660,7 +730,7 @@ export function ClientManager() {
   const breadcrumbs = getBreadcrumbs();
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden relative">
       {/* Breadcrumb */}
       <div className="px-4 pt-3 pb-2 flex items-center gap-2 text-sm">
         <button
@@ -670,7 +740,7 @@ export function ClientManager() {
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div className="flex items-center gap-1 text-fg-5 min-w-0 overflow-hidden">
+        <div className="flex-1 flex items-center gap-1 text-fg-5 min-w-0 overflow-hidden">
           <span className="text-fg-6 flex-shrink-0">Clientes$</span>
           {breadcrumbs.map((part, i) => (
             <span key={i} className="flex items-center gap-1 min-w-0">
@@ -688,6 +758,16 @@ export function ClientManager() {
             </span>
           ))}
         </div>
+        <button
+          onClick={() => {
+            setNewFolderName("");
+            setShowNewFolderDialog(true);
+          }}
+          className="p-1 rounded text-fg-4 hover:text-fg-2 hover:bg-field transition-colors flex-shrink-0"
+          title="Nova Pasta"
+        >
+          <FolderPlus className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Error */}
@@ -756,6 +836,26 @@ export function ClientManager() {
         )}
       </div>
 
+      {/* Drag and drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-40 bg-indigo-500/10 border-2 border-dashed border-indigo-500 rounded-lg flex items-center justify-center backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-2 text-indigo-400">
+            <Upload className="w-10 h-10" />
+            <p className="text-sm font-medium">Solte para copiar aqui</p>
+          </div>
+        </div>
+      )}
+
+      {/* Copying indicator */}
+      {isCopying && (
+        <div className="absolute inset-0 z-40 bg-black/30 flex items-center justify-center backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 bg-surface border border-edge-2 rounded-lg px-4 py-3 shadow-lg">
+            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+            <p className="text-sm text-fg-2">Copiando arquivos...</p>
+          </div>
+        </div>
+      )}
+
       {/* Context Menu */}
       {contextMenu && (
         <ContextMenuOverlay
@@ -793,6 +893,39 @@ export function ClientManager() {
           onCancel={() => setMoveDialog(null)}
           onSelect={executeMove}
         />
+      )}
+      {showNewFolderDialog && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-surface border border-edge-2 rounded-xl w-full max-w-sm mx-4 p-4">
+            <h3 className="text-sm font-semibold text-fg-2 mb-3">
+              Nova Pasta
+            </h3>
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && executeCreateFolder()}
+              placeholder="Nome da pasta"
+              autoFocus
+              className="w-full px-3 py-2 bg-field border border-edge-2 rounded-lg text-sm text-fg-2 placeholder-fg-5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowNewFolderDialog(false)}
+                className="px-3 py-1.5 text-sm text-fg-4 hover:text-fg-2 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={executeCreateFolder}
+                disabled={!newFolderName.trim()}
+                className="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                Criar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
