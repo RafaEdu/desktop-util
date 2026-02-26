@@ -16,6 +16,13 @@ export interface QuickLink {
   created_at: string;
 }
 
+export interface ClientFolder {
+  id: number;
+  folder_name: string;
+  folder_path: string;
+  created_at: string;
+}
+
 let dbInstance: Database | null = null;
 
 export async function getDb(): Promise<Database> {

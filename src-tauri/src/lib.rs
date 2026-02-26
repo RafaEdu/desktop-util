@@ -1,3 +1,4 @@
+mod client_folders;
 mod nfe;
 mod pdf_utils;
 
@@ -614,6 +615,12 @@ pub fn run() {
             pdf_utils::split_pdf,
             pdf_utils::get_pdf_info,
             pdf_utils::compress_pdf,
+            client_folders::list_network_folders,
+            client_folders::list_directory,
+            client_folders::rename_entry,
+            client_folders::move_entry,
+            client_folders::delete_entry,
+            client_folders::open_file,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
@@ -660,6 +667,17 @@ pub fn run() {
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 title TEXT NOT NULL,
                                 url TEXT NOT NULL,
+                                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                            );",
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 6,
+                            description: "create client_folders table",
+                            sql: "CREATE TABLE IF NOT EXISTS client_folders (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                folder_name TEXT NOT NULL,
+                                folder_path TEXT NOT NULL UNIQUE,
                                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
                             );",
                             kind: tauri_plugin_sql::MigrationKind::Up,

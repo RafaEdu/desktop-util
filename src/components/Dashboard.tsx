@@ -11,6 +11,7 @@ import {
   Timer as TimerIcon,
   MessageSquareText, // Novo ícone
   ClipboardList, // Novo ícone
+  FolderOpen,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -27,7 +28,8 @@ type View =
   | "nfe"
   | "pdf"
   | "snippets"
-  | "clipboard";
+  | "clipboard"
+  | "clients";
 
 interface DashboardCard {
   id: string;
@@ -145,6 +147,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       description: "Unir, dividir e comprimir",
       icon: FileStack,
       view: "pdf",
+    },
+    {
+      id: "clients",
+      title: "Pasta Clientes",
+      description: "Gerenciar pastas de clientes",
+      icon: FolderOpen,
+      view: "clients",
     },
   ];
 
