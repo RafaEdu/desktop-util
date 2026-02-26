@@ -42,24 +42,35 @@ interface ContextMenuState {
   folderId?: number;
 }
 
-function getFileIcon(entry: DirEntry) {
-  if (entry.is_dir) return Folder;
+function getFileIcon(entry: DirEntry): {
+  icon: typeof Folder;
+  color: string;
+} {
+  if (entry.is_dir) return { icon: Folder, color: "text-amber-400" };
 
   const ext = entry.extension.toLowerCase();
-  const textExts = ["pdf", "doc", "docx", "txt", "rtf", "odt"];
+  const pdfExts = ["pdf"];
+  const docExts = ["doc", "docx", "txt", "rtf", "odt"];
   const sheetExts = ["xls", "xlsx", "csv", "ods"];
   const imageExts = ["jpg", "jpeg", "png", "gif", "bmp", "svg"];
   const videoExts = ["mp4", "avi", "mkv", "mov", "wmv"];
   const audioExts = ["mp3", "wav", "ogg", "flac"];
   const archiveExts = ["zip", "rar", "7z", "tar", "gz"];
 
-  if (textExts.includes(ext)) return FileText;
-  if (sheetExts.includes(ext)) return FileSpreadsheet;
-  if (imageExts.includes(ext)) return FileImage;
-  if (videoExts.includes(ext)) return FileVideo;
-  if (audioExts.includes(ext)) return FileAudio;
-  if (archiveExts.includes(ext)) return FileArchive;
-  return File;
+  if (pdfExts.includes(ext)) return { icon: FileText, color: "text-red-400" };
+  if (docExts.includes(ext))
+    return { icon: FileText, color: "text-blue-400" };
+  if (sheetExts.includes(ext))
+    return { icon: FileSpreadsheet, color: "text-emerald-400" };
+  if (imageExts.includes(ext))
+    return { icon: FileImage, color: "text-purple-400" };
+  if (videoExts.includes(ext))
+    return { icon: FileVideo, color: "text-rose-400" };
+  if (audioExts.includes(ext))
+    return { icon: FileAudio, color: "text-cyan-400" };
+  if (archiveExts.includes(ext))
+    return { icon: FileArchive, color: "text-orange-400" };
+  return { icon: File, color: "text-gray-400" };
 }
 
 function formatSize(bytes: number): string {
@@ -490,9 +501,12 @@ export function ClientManager() {
                   }
                   className="w-full flex items-center gap-3 px-3 py-2.5 bg-gray-900 border border-gray-800 rounded-lg hover:border-indigo-500 hover:bg-gray-900/80 transition-all group"
                 >
-                  <Folder className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+                  <Folder className="w-5 h-5 text-amber-400 flex-shrink-0" />
                   <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm font-medium text-gray-200 truncate">
+                    <p
+                      className="text-sm font-medium text-gray-200 truncate"
+                      title={folder.folder_name}
+                    >
                       {folder.folder_name}
                     </p>
                   </div>
@@ -703,7 +717,7 @@ export function ClientManager() {
         ) : (
           <div className="space-y-0.5">
             {dirEntries.map((entry) => {
-              const Icon = getFileIcon(entry);
+              const { icon: Icon, color: iconColor } = getFileIcon(entry);
               const fullPath = `${currentPath}\\${entry.name}`;
               return (
                 <button
@@ -715,17 +729,17 @@ export function ClientManager() {
                   className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800/50 transition-colors group"
                 >
                   <Icon
-                    className={cn(
-                      "w-4.5 h-4.5 flex-shrink-0",
-                      entry.is_dir ? "text-indigo-400" : "text-gray-500",
-                    )}
+                    className={cn("w-5 h-5 flex-shrink-0", iconColor)}
                   />
                   <div className="flex-1 text-left min-w-0">
-                    <p className="text-sm text-gray-200 truncate">
+                    <p
+                      className="text-sm text-gray-200 truncate"
+                      title={entry.name}
+                    >
                       {entry.name}
                     </p>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-gray-600 flex-shrink-0">
+                  <div className="flex items-center gap-4 text-xs text-gray-300 flex-shrink-0">
                     {!entry.is_dir && (
                       <span className="w-16 text-right">
                         {formatSize(entry.size)}
