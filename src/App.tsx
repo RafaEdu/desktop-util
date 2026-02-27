@@ -14,6 +14,7 @@ import { Timer } from "./components/Timer";
 import { SnippetManager } from "./components/SnippetManager";
 import { ClipboardHistory } from "./components/ClipboardHistory";
 import { ClientManager } from "./components/ClientManager";
+import { Societario } from "./components/Societario";
 import { useTheme } from "./lib/theme";
 
 type View =
@@ -28,7 +29,8 @@ type View =
   | "pdf"
   | "snippets"
   | "clipboard"
-  | "clients";
+  | "clients"
+  | "societario";
 
 const VIEW_TITLES: Record<View, string> = {
   dashboard: "Adcontec Útil",
@@ -43,6 +45,7 @@ const VIEW_TITLES: Record<View, string> = {
   snippets: "Textos Prontos",
   clipboard: "Histórico (Win+V)",
   clients: "Pasta Clientes",
+  societario: "Societário",
 };
 
 function App() {
@@ -191,6 +194,7 @@ function App() {
       {activeView === "snippets" && <SnippetManager />}
       {activeView === "clipboard" && <ClipboardHistory />}
       {activeView === "clients" && <ClientManager />}
+      {activeView === "societario" && <Societario />}
 
       {/* Footer */}
       <footer className="px-4 py-2 bg-surface border-t border-edge">

@@ -12,6 +12,7 @@ import {
   MessageSquareText, // Novo ícone
   ClipboardList, // Novo ícone
   FolderOpen,
+  Briefcase,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -29,7 +30,8 @@ type View =
   | "pdf"
   | "snippets"
   | "clipboard"
-  | "clients";
+  | "clients"
+  | "societario";
 
 interface DashboardCard {
   id: string;
@@ -154,6 +156,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       description: "Gerenciar pastas de clientes",
       icon: FolderOpen,
       view: "clients",
+    },
+    {
+      id: "societario",
+      title: "Societário",
+      description: "Consulta de CNPJ",
+      icon: Briefcase,
+      view: "societario",
     },
   ];
 
