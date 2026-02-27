@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Search,
   Briefcase,
@@ -9,12 +9,17 @@ import {
   Calendar,
   Tag,
   X,
+  Download,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { fetch } from "@tauri-apps/plugin-http";
+import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 import { cn } from "../lib/cn";
 
 interface CnaeSecundario {
-  codigo: number;
+  codigo: number | string;
   descricao: string;
 }
 
@@ -24,6 +29,7 @@ interface CnpjData {
   nome_fantasia: string;
   situacao_cadastral: string;
   descricao_situacao_cadastral: string;
+  data_situacao_cadastral?: string;
   data_inicio_atividade: string;
   cnae_fiscal: number;
   cnae_fiscal_descricao: string;
@@ -41,6 +47,7 @@ interface CnpjData {
   natureza_juridica: string;
   porte: string;
   capital_social: number;
+  descricao_identificador_matriz_filial?: string;
 }
 
 const SITUACAO_COLORS: Record<string, string> = {
@@ -97,8 +104,10 @@ function formatDate(dateStr: string): string {
 export function Societario() {
   const [cnpjInput, setCnpjInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CnpjData | null>(null);
+  const pdfTemplateRef = useRef<HTMLDivElement>(null);
 
   const cnpjDigits = cnpjInput.replace(/\D/g, "");
   const isValid = cnpjDigits.length === 14;
@@ -164,6 +173,96 @@ export function Societario() {
 
   const phone1 = data ? formatPhone(data.ddd_telefone_1) : "";
   const phone2 = data ? formatPhone(data.ddd_telefone_2) : "";
+
+  const valueOrDash = (value?: string | number | null) => {
+    if (value === null || value === undefined) return "-";
+    const text = String(value).trim();
+    return text.length > 0 ? text : "-";
+  };
+
+  const tipoEstabelecimento = data?.descricao_identificador_matriz_filial
+    ? data.descricao_identificador_matriz_filial.toUpperCase()
+    : cnpjDigits.length === 14 && cnpjDigits.slice(8, 12) === "0001"
+      ? "MATRIZ"
+      : "FILIAL";
+
+  const cnaePrincipal = data
+    ? `${valueOrDash(data.cnae_fiscal)} - ${valueOrDash(data.cnae_fiscal_descricao)}`
+    : "-";
+
+  const cnaesSecundariosList =
+    data?.cnaes_secundarios && data.cnaes_secundarios.length > 0
+      ? data.cnaes_secundarios.map(
+          (cnae) =>
+            `${valueOrDash(cnae.codigo)} - ${valueOrDash(cnae.descricao)}`,
+        )
+      : ["-"];
+
+  const handleGeneratePdf = async () => {
+    if (!data || !pdfTemplateRef.current) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      const outputPath = await save({
+        defaultPath: `cartao-cnpj-${cnpjDigits || "consulta"}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+
+      if (!outputPath) return;
+
+      const rect = pdfTemplateRef.current.getBoundingClientRect();
+      const imageData = await toPng(pdfTemplateRef.current, {
+        cacheBust: true,
+        pixelRatio: 3,
+        backgroundColor: "#ffffff",
+      });
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 12;
+      const marginTop = 12;
+      const maxWidth = pageWidth - marginX * 2;
+      const maxHeight = pageHeight - marginTop * 2;
+      const imageRatio = rect.width / rect.height;
+
+      let renderWidth = maxWidth;
+      let renderHeight = renderWidth / imageRatio;
+
+      if (renderHeight > maxHeight) {
+        renderHeight = maxHeight;
+        renderWidth = renderHeight * imageRatio;
+      }
+
+      const posX = (pageWidth - renderWidth) / 2;
+      pdf.addImage(
+        imageData,
+        "PNG",
+        posX,
+        marginTop,
+        renderWidth,
+        renderHeight,
+      );
+
+      const pdfBytes = pdf.output("arraybuffer");
+      await invoke("save_binary_file", {
+        outputPath,
+        bytes: Array.from(new Uint8Array(pdfBytes)),
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Não foi possível gerar o Cartão CNPJ em PDF.";
+      setError(message);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -390,9 +489,234 @@ export function Societario() {
                 )}
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={handleGeneratePdf}
+              disabled={isGeneratingPdf}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors",
+                isGeneratingPdf
+                  ? "bg-field text-fg-6 cursor-not-allowed"
+                  : "bg-indigo-600 text-white hover:bg-indigo-500",
+              )}
+            >
+              {isGeneratingPdf ? (
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              {isGeneratingPdf ? "Carregando..." : "Baixar Cartão CNPJ"}
+            </button>
           </div>
         )}
       </main>
+
+      {data && (
+        <div className="absolute -left-[99999px] top-0 pointer-events-none">
+          <div
+            ref={pdfTemplateRef}
+            className="w-[980px] bg-white p-[22px] box-border"
+          >
+            <div className="w-full bg-white text-black border border-black text-[12px] leading-[1.2] font-sans">
+              <div className="min-h-[108px] border-b border-black px-5 py-4 text-center flex flex-col justify-center">
+                <p className="text-[16px] font-bold tracking-[0.2px]">
+                  REPÚBLICA FEDERATIVA DO BRASIL
+                </p>
+                <p className="text-[13px] font-bold mt-1">
+                  CADASTRO NACIONAL DA PESSOA JURÍDICA
+                </p>
+                <p className="text-[15px] font-bold mt-2 tracking-[0.15px]">
+                  COMPROVANTE DE INSCRIÇÃO E DE SITUAÇÃO CADASTRAL
+                </p>
+              </div>
+
+              <div className="grid grid-cols-12 min-h-[56px] border-b border-black">
+                <div className="col-span-4 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Número de Inscrição
+                  </p>
+                  <p className="text-[14px] font-bold mt-1 leading-[1.15]">
+                    {valueOrDash(formatCnpj(data.cnpj))}
+                  </p>
+                </div>
+                <div className="col-span-4 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Matriz/Filial
+                  </p>
+                  <p className="text-[14px] font-bold mt-1 leading-[1.15]">
+                    {valueOrDash(tipoEstabelecimento)}
+                  </p>
+                </div>
+                <div className="col-span-4 px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Data de Abertura
+                  </p>
+                  <p className="text-[14px] font-bold mt-1 leading-[1.15]">
+                    {valueOrDash(formatDate(data.data_inicio_atividade))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="min-h-[50px] border-b border-black px-2.5 py-1.5">
+                <p className="text-[9px] uppercase tracking-tight">
+                  Nome Empresarial
+                </p>
+                <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                  {valueOrDash(data.razao_social)}
+                </p>
+              </div>
+
+              <div className="min-h-[50px] border-b border-black px-2.5 py-1.5">
+                <p className="text-[9px] uppercase tracking-tight">
+                  Título do Estabelecimento (Nome de Fantasia)
+                </p>
+                <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                  {valueOrDash(data.nome_fantasia)}
+                </p>
+              </div>
+
+              <div className="min-h-[64px] border-b border-black px-2.5 py-1.5">
+                <p className="text-[9px] uppercase tracking-tight">
+                  Código e Descrição da Atividade Econômica Principal
+                </p>
+                <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                  {cnaePrincipal}
+                </p>
+              </div>
+
+              <div className="min-h-[86px] border-b border-black px-2.5 py-1.5">
+                <p className="text-[9px] uppercase tracking-tight">
+                  Código e Descrição das Atividades Econômicas Secundárias
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {cnaesSecundariosList.map((cnae, index) => (
+                    <li
+                      key={`${cnae}-${index}`}
+                      className="text-[12px] font-bold leading-[1.15] break-words"
+                    >
+                      {cnae}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="min-h-[50px] border-b border-black px-2.5 py-1.5">
+                <p className="text-[9px] uppercase tracking-tight">
+                  Código e Descrição da Natureza Jurídica
+                </p>
+                <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                  {valueOrDash(data.natureza_juridica)}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-12 min-h-[58px] border-b border-black">
+                <div className="col-span-4 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Logradouro
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.logradouro)}
+                  </p>
+                </div>
+                <div className="col-span-2 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">Número</p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.numero)}
+                  </p>
+                </div>
+                <div className="col-span-3 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Complemento
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.complemento)}
+                  </p>
+                </div>
+                <div className="col-span-3 px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">CEP</p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(formatCep(data.cep))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 min-h-[58px] border-b border-black">
+                <div className="col-span-4 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Bairro/Distrito
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.bairro)}
+                  </p>
+                </div>
+                <div className="col-span-6 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Município
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.municipio)}
+                  </p>
+                </div>
+                <div className="col-span-2 px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">UF</p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.uf)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 min-h-[58px] border-b border-black">
+                <div className="col-span-8 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Endereço Eletrônico
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(data.email)}
+                  </p>
+                </div>
+                <div className="col-span-4 px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Telefone
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash([phone1, phone2].filter(Boolean).join(" / "))}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 min-h-[58px] border-b border-black">
+                <div className="col-span-6 border-r border-black px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Situação Cadastral
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(
+                      data.descricao_situacao_cadastral ||
+                        data.situacao_cadastral,
+                    )}
+                  </p>
+                </div>
+                <div className="col-span-6 px-2.5 py-1.5">
+                  <p className="text-[9px] uppercase tracking-tight">
+                    Data da Situação Cadastral
+                  </p>
+                  <p className="text-[13.5px] font-bold mt-1 leading-[1.18] break-words">
+                    {valueOrDash(
+                      formatDate(data.data_situacao_cadastral || ""),
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-2.5 py-2 text-[10px] text-black/80 leading-[1.2]">
+                <p>Documento gerado em {new Date().toLocaleString("pt-BR")}.</p>
+                <p>Dados consultados via BrasilAPI (Receita Federal).</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

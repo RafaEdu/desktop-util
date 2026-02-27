@@ -2,7 +2,7 @@ mod client_folders;
 mod nfe;
 mod pdf_utils;
 
-use std::sync::Mutex;
+use std::{fs, sync::Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
@@ -19,6 +19,11 @@ struct AppState {
 #[tauri::command]
 fn set_movable_mode(state: tauri::State<'_, AppState>, enabled: bool) {
     *state.movable_mode.lock().unwrap() = enabled;
+}
+
+#[tauri::command]
+fn save_binary_file(output_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    fs::write(output_path, bytes).map_err(|e| format!("Falha ao salvar arquivo: {}", e))
 }
 
 // ── Certificate Types ───────────────────────────────────────────
@@ -603,6 +608,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_movable_mode,
+            save_binary_file,
             get_certificates,
             delete_certificates,
             start_screen_capture,
