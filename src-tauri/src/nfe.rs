@@ -113,25 +113,36 @@ pub struct NfeData {
 }
 
 #[tauri::command]
-pub async fn query_nfe(thumbprint: String, access_key: String) -> Result<String, String> {
-    query_nfe_impl(thumbprint, access_key).await
+pub async fn query_nfe(
+    thumbprint: String,
+    access_key: String,
+    cert_cnpj: Option<String>,
+) -> Result<String, String> {
+    query_nfe_impl(thumbprint, access_key, cert_cnpj).await
 }
 
 #[cfg(windows)]
-async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String, String> {
+async fn query_nfe_impl(
+    thumbprint: String,
+    access_key: String,
+    cert_cnpj: Option<String>,
+) -> Result<String, String> {
     if access_key.len() != 44 || !access_key.chars().all(|c| c.is_ascii_digit()) {
         return Err("Chave de acesso deve conter exatamente 44 dígitos numéricos".into());
     }
 
-    let (mut pfx_bytes, password, cnpj) = export_cert_pfx(&thumbprint)?;
+    let (mut pfx_bytes, password, extracted_cnpj) = export_cert_pfx(&thumbprint)?;
+
+    let cnpj = cert_cnpj
+        .as_deref()
+        .map(normalize_digits)
+        .filter(|value| value.len() == 14)
+        .unwrap_or_else(|| normalize_digits(&extracted_cnpj));
 
     if cnpj.is_empty() {
         pfx_bytes.fill(0);
         return Err("Não foi possível extrair o CNPJ do certificado selecionado. Verifique se é um e-CNPJ (A1).".into());
     }
-
-    let soap_xml = build_soap_request(&access_key, &cnpj, "1");
-    let endpoint = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
 
     let identity = reqwest::Identity::from_pkcs12_der(&pfx_bytes, &password)
         .map_err(|e| format!("Falha ao criar identidade TLS: {}", e))?;
@@ -144,38 +155,101 @@ async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String
         .build()
         .map_err(|e| format!("Falha ao criar cliente HTTP: {}", e))?;
 
-    let response = client
-        .post(endpoint)
-        .header("Content-Type", "application/soap+xml; charset=utf-8; action=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse\"")
-        .body(soap_xml)
-        .send()
-        .await
-        .map_err(|e| format!("Falha na comunicação com SEFAZ: {}", e))?;
+    let mut first_attempt_error: Option<String> = None;
+    for (idx, tp_amb) in ["1", "2"].iter().enumerate() {
+        let endpoint = endpoint_for_tp_amb(tp_amb);
+        let soap_xml = build_soap_request(&access_key, &cnpj, tp_amb);
 
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("Falha ao ler resposta: {}", e))?;
+        let response = client
+            .post(endpoint)
+            .header("Content-Type", "application/soap+xml; charset=utf-8; action=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse\"")
+            .body(soap_xml)
+            .send()
+            .await
+            .map_err(|e| format!("Falha na comunicação com SEFAZ (tpAmb {}): {}", tp_amb, e))?;
 
-    if !status.is_success() {
-        let preview = if body.len() > 500 {
-            &body[..500]
-        } else {
-            &body
-        };
-        return Err(format!("SEFAZ retornou status {}: {}", status, preview));
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Falha ao ler resposta (tpAmb {}): {}", tp_amb, e))?;
+
+        if !status.is_success() {
+            let preview = if body.len() > 500 { &body[..500] } else { &body };
+            let http_err = format!(
+                "SEFAZ retornou status {} (tpAmb {}): {}",
+                status, tp_amb, preview
+            );
+
+            if idx == 0 {
+                return Err(http_err);
+            }
+
+            if let Some(first) = first_attempt_error {
+                return Err(format!(
+                    "{}\n\nTentativa adicional [tpAmb {}] indisponível: {}",
+                    first, tp_amb, http_err
+                ));
+            }
+
+            return Err(http_err);
+        }
+
+        match parse_sefaz_response(&body, &access_key, &cnpj) {
+            Ok((nfe_data, raw_xml)) => {
+                let html = generate_danfe_html(&nfe_data);
+                let path = save_files_to_temp(&html, &raw_xml, &access_key)?;
+                return Ok(path);
+            }
+            Err(err) => {
+                let retryable = idx == 0
+                    && (err.contains("SEFAZ: 137") || err.contains("SEFAZ: 641"));
+                if retryable {
+                    match try_find_nfe_via_nsu(&client, endpoint, tp_amb, &cnpj, &access_key).await {
+                        Ok(Some((nfe_data, raw_xml))) => {
+                            let html = generate_danfe_html(&nfe_data);
+                            let path = save_files_to_temp(&html, &raw_xml, &access_key)?;
+                            return Ok(path);
+                        }
+                        Ok(None) => {
+                            first_attempt_error = Some(format!(
+                                "[tpAmb {}] {}\nFallback NSU: nenhum XML completo localizado para a chave no lote de distribuição.",
+                                tp_amb, err
+                            ));
+                        }
+                        Err(nsu_err) => {
+                            first_attempt_error = Some(format!(
+                                "[tpAmb {}] {}\nFallback NSU falhou: {}",
+                                tp_amb, err, nsu_err
+                            ));
+                        }
+                    }
+                    continue;
+                }
+
+                if let Some(first) = first_attempt_error {
+                    return Err(format!(
+                        "{}\n\nTentativa adicional [tpAmb {}]: {}",
+                        first, tp_amb, err
+                    ));
+                }
+
+                return Err(err);
+            }
+        }
     }
 
-    let (nfe_data, raw_xml) = parse_sefaz_response(&body, &access_key)?;
-    let html = generate_danfe_html(&nfe_data);
-    let path = save_files_to_temp(&html, &raw_xml, &access_key)?;
-
-    Ok(path)
+    Err(first_attempt_error.unwrap_or_else(|| {
+        "Falha na consulta da NF-e em ambos ambientes (produção e homologação).".into()
+    }))
 }
 
 #[cfg(not(windows))]
-async fn query_nfe_impl(_thumbprint: String, _access_key: String) -> Result<String, String> {
+async fn query_nfe_impl(
+    _thumbprint: String,
+    _access_key: String,
+    _cert_cnpj: Option<String>,
+) -> Result<String, String> {
     Err("Consulta NFe disponível apenas no Windows".into())
 }
 
@@ -442,6 +516,10 @@ fn find_cnpj_in_str(s: &str) -> Option<String> {
     None
 }
 
+fn normalize_digits(value: &str) -> String {
+    value.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
 fn build_soap_request(access_key: &str, cnpj: &str, tp_amb: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
@@ -451,23 +529,156 @@ fn build_soap_request(access_key: &str, cnpj: &str, tp_amb: &str) -> String {
     )
 }
 
-fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, String), String> {
+fn build_soap_request_nsu(cnpj: &str, tp_amb: &str, ult_nsu: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><CNPJ>{cnpj}</CNPJ><distNSU><ultNSU>{ult_nsu}</ultNSU></distNSU></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
+        tp_amb = tp_amb,
+        cnpj = cnpj,
+        ult_nsu = ult_nsu,
+    )
+}
+
+async fn try_find_nfe_via_nsu(
+    client: &reqwest::Client,
+    endpoint: &str,
+    tp_amb: &str,
+    cnpj: &str,
+    access_key: &str,
+) -> Result<Option<(NfeData, String)>, String> {
+    let mut ult_nsu = "000000000000000".to_string();
+
+    for _ in 0..8 {
+        let soap_xml = build_soap_request_nsu(cnpj, tp_amb, &ult_nsu);
+        let response = client
+            .post(endpoint)
+            .header("Content-Type", "application/soap+xml; charset=utf-8; action=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse\"")
+            .body(soap_xml)
+            .send()
+            .await
+            .map_err(|e| format!("Falha na comunicação NSU: {}", e))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Falha ao ler resposta NSU: {}", e))?;
+
+        if !status.is_success() {
+            let preview = if body.len() > 500 { &body[..500] } else { &body };
+            return Err(format!(
+                "HTTP {} na consulta NSU (tpAmb {}): {}",
+                status, tp_amb, preview
+            ));
+        }
+
+        let cstat = extract_tag_content(&body, "cStat")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        if cstat == "137" {
+            return Ok(None);
+        }
+        if cstat != "138" {
+            let xmotivo = extract_tag_content(&body, "xMotivo").unwrap_or_default();
+            return Err(format!(
+                "SEFAZ NSU retornou {} - {} (CNPJ consultante: {})",
+                cstat,
+                xmotivo,
+                format_cnpj_cpf(cnpj)
+            ));
+        }
+
+        let doc_zips = extract_all_doc_zips(&body);
+        if doc_zips.is_empty() {
+            return Ok(None);
+        }
+
+        for (schema, b64_content) in doc_zips {
+            if !schema.contains("procNFe") {
+                continue;
+            }
+
+            let compressed =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64_content)
+                    .map_err(|e| format!("Falha decode base64 NSU: {}", e))?;
+            let xml = decompress_doc_zip(&compressed)?;
+
+            if !xml.contains(access_key) {
+                continue;
+            }
+
+            let parsed = parse_nfe_xml(&xml, access_key)?;
+            return Ok(Some((parsed, xml)));
+        }
+
+        let next_ult_nsu = extract_tag_content(&body, "ultNSU").unwrap_or_default();
+        let max_nsu = extract_tag_content(&body, "maxNSU").unwrap_or_default();
+
+        if next_ult_nsu.is_empty() || next_ult_nsu == ult_nsu || next_ult_nsu == max_nsu {
+            break;
+        }
+
+        ult_nsu = next_ult_nsu;
+    }
+
+    Ok(None)
+}
+
+fn endpoint_for_tp_amb(tp_amb: &str) -> &'static str {
+    match tp_amb {
+        "2" => "https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx",
+        _ => "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx",
+    }
+}
+
+fn parse_sefaz_response(
+    soap_xml: &str,
+    access_key: &str,
+    consult_cnpj: &str,
+) -> Result<(NfeData, String), String> {
     let cstat = extract_tag_content(soap_xml, "cStat")
         .unwrap_or_default()
         .trim()
         .to_string();
+
+    if cstat.is_empty() {
+        let preview = compact_preview(soap_xml, 240);
+        return Err(format!(
+            "SEFAZ: resposta inválida (cStat ausente). Chave: {} | CNPJ consultante: {} | Preview: {}",
+            mask_access_key(access_key),
+            format_cnpj_cpf(consult_cnpj),
+            preview
+        ));
+    }
+
     if cstat != "138" {
         let xmotivo = extract_tag_content(soap_xml, "xMotivo").unwrap_or_default();
+        if cstat == "137" {
+            return Err(format!(
+                "SEFAZ: 137 - Nenhum documento localizado para esta chave e certificado.\n\
+                 CNPJ consultante: {}\n\
+                 Dica: confirme se a NF-e está distribuída para este CNPJ (emitente/destinatário/autorizado XML) e aguarde alguns minutos após autorização.",
+                format_cnpj_cpf(consult_cnpj)
+            ));
+        }
         if cstat == "641" {
             return Err(format!(
                 "SEFAZ: 641 - NF-e indisponível para o emitente.\n\
+                 CNPJ consultante: {}\n\
                  Possíveis causas:\n\
                  - A NF-e ainda não foi distribuída pela SEFAZ (aguarde alguns minutos e tente novamente)\n\
                  - A NF-e pode ter sido cancelada ou denegada\n\
-                 - O certificado digital pode não corresponder ao emitente ou destinatário da NF-e"
+                 - O certificado digital pode não corresponder ao emitente, destinatário ou autorizado no XML da NF-e",
+                format_cnpj_cpf(consult_cnpj)
             ));
         }
-        return Err(format!("SEFAZ: {} - {}", cstat, xmotivo));
+        return Err(format!(
+            "SEFAZ: {} - {} (CNPJ consultante: {})",
+            cstat,
+            xmotivo,
+            format_cnpj_cpf(consult_cnpj)
+        ));
     }
 
     let doc_zips = extract_all_doc_zips(soap_xml);
@@ -499,29 +710,92 @@ fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, St
 }
 
 fn extract_tag_content(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}", tag);
     let close = format!("</{}>", tag);
-    let start = xml.find(&open)?;
+    if let Some(start) = xml.find(&format!("<{}", tag)) {
+        let tag_end = xml[start..].find('>')? + start + 1;
+        let end = xml[tag_end..].find(&close)? + tag_end;
+        return Some(xml[tag_end..end].to_string());
+    }
+
+    let open_ns = format!(":{}", tag);
+    let idx = xml.find(&open_ns)?;
+    let start = xml[..idx].rfind('<')?;
     let tag_end = xml[start..].find('>')? + start + 1;
-    let end = xml[tag_end..].find(&close)? + tag_end;
-    Some(xml[tag_end..end].to_string())
+    let after_start = &xml[tag_end..];
+    let end_rel = after_start
+        .find(&format!("</{}>", tag))
+        .or_else(|| after_start.find(&format!("</{}{}>", &xml[start + 1..idx], open_ns)))?;
+    Some(after_start[..end_rel].to_string())
 }
 
 fn extract_block(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}", tag);
     let close = format!("</{}>", tag);
-    let start = xml.find(&open)?;
-    let end = xml[start..].find(&close)? + start + close.len();
+    if let Some(start) = xml.find(&format!("<{}", tag)) {
+        let end = xml[start..].find(&close)? + start + close.len();
+        return Some(xml[start..end].to_string());
+    }
+
+    let open_ns = format!(":{}", tag);
+    let idx = xml.find(&open_ns)?;
+    let start = xml[..idx].rfind('<')?;
+    let prefix = &xml[start + 1..idx];
+    let close_ns = format!("</{}:{}>", prefix, tag);
+    let end = xml[start..].find(&close_ns)? + start + close_ns.len();
     Some(xml[start..end].to_string())
+}
+
+fn mask_access_key(access_key: &str) -> String {
+    if access_key.len() <= 8 {
+        return access_key.to_string();
+    }
+    format!("{}...{}", &access_key[..4], &access_key[access_key.len() - 4..])
+}
+
+fn compact_preview(value: &str, limit: usize) -> String {
+    let compact = value
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect::<String>();
+    if compact.len() > limit {
+        compact[..limit].to_string()
+    } else {
+        compact
+    }
 }
 
 fn extract_all_doc_zips(xml: &str) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let mut search_from = 0;
-    while let Some(start) = xml[search_from..].find("<docZip") {
-        let abs_start = search_from + start;
-        let tag_section =
-            &xml[abs_start..abs_start + xml[abs_start..].find('>').unwrap_or(200).min(200)];
+    while let Some(found) = xml[search_from..].find("docZip") {
+        let abs_found = search_from + found;
+        let Some(abs_start) = xml[..abs_found].rfind('<') else {
+            search_from = abs_found + 6;
+            continue;
+        };
+
+        if xml.get(abs_start + 1..abs_start + 2) == Some("/") {
+            search_from = abs_found + 6;
+            continue;
+        }
+
+        let Some(tag_end_rel) = xml[abs_start..].find('>') else {
+            break;
+        };
+        let abs_tag_end = abs_start + tag_end_rel;
+        let tag_section = &xml[abs_start..=abs_tag_end];
+
+        let name_start = abs_start + 1;
+        let name_end = xml[name_start..]
+            .find(|c: char| c == '>' || c.is_ascii_whitespace())
+            .map(|v| name_start + v)
+            .unwrap_or(abs_tag_end);
+        let tag_name = &xml[name_start..name_end];
+
+        if !tag_name.ends_with("docZip") {
+            search_from = abs_found + 6;
+            continue;
+        }
+
         let schema = if let Some(schema_start) = tag_section.find("schema=\"") {
             let s = schema_start + 8;
             if let Some(schema_end) = tag_section[s..].find('"') {
@@ -532,16 +806,27 @@ fn extract_all_doc_zips(xml: &str) -> Vec<(String, String)> {
         } else {
             String::new()
         };
-        if let Some(tag_end) = xml[abs_start..].find('>') {
-            let content_start = abs_start + tag_end + 1;
-            if let Some(close) = xml[content_start..].find("</docZip>") {
-                let content = xml[content_start..content_start + close].trim().to_string();
-                results.push((schema, content));
-                search_from = content_start + close + 9;
-                continue;
-            }
+
+        let content_start = abs_tag_end + 1;
+        let close_tag = format!("</{}>", tag_name);
+        let fallback_close_tag = "</docZip>";
+        let close_rel = xml[content_start..]
+            .find(&close_tag)
+            .or_else(|| xml[content_start..].find(fallback_close_tag));
+
+        if let Some(close) = close_rel {
+            let close_len = if xml[content_start + close..].starts_with(&close_tag) {
+                close_tag.len()
+            } else {
+                fallback_close_tag.len()
+            };
+            let content = xml[content_start..content_start + close].trim().to_string();
+            results.push((schema, content));
+            search_from = content_start + close + close_len;
+            continue;
         }
-        search_from = abs_start + 7;
+
+        search_from = abs_found + 6;
     }
     results
 }

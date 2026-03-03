@@ -57,6 +57,7 @@ interface CertInfo {
   issuer: string;
   not_after: string;
   thumbprint: string;
+  cnpj: string;
 }
 
 export function NfeQuery() {
@@ -70,6 +71,14 @@ export function NfeQuery() {
   const accessKey = accessKeyRaw.replace(/\D/g, "").slice(0, 44);
   const parsed = parseAccessKey(accessKey);
   const isValid = accessKey.length === 44;
+  const keyCnpj = isValid ? accessKey.slice(6, 20) : "";
+  const selectedCertInfo = certs.find((c) => c.thumbprint === selectedCert);
+  const selectedCertCnpj = selectedCertInfo?.cnpj ?? "";
+  const hasCnpjMismatch =
+    method === "cert" &&
+    isValid &&
+    !!selectedCertCnpj &&
+    selectedCertCnpj !== keyCnpj;
 
   const loadCerts = async () => {
     setLoadingCerts(true);
@@ -105,11 +114,25 @@ export function NfeQuery() {
         const filePath = await invoke<string>("query_nfe", {
           thumbprint: selectedCert,
           accessKey,
+          certCnpj: selectedCertInfo?.cnpj ?? null,
         });
         await invoke("open_danfe", { filePath });
       }
     } catch (err) {
-      setError(String(err));
+      const raw = String(err);
+      if (raw.includes("SEFAZ: 137")) {
+        setError(
+          "SEFAZ 137: nenhum documento localizado para esta chave/certificado. A NF-e pode ainda não ter sido distribuída para este CNPJ.\n\nDetalhes:\n" +
+            raw,
+        );
+      } else if (raw.includes("SEFAZ: 641")) {
+        setError(
+          "SEFAZ 641: NF-e indisponível para o emitente/interessado deste certificado. Verifique vínculo do CNPJ e autorização da NF-e.\n\nDetalhes:\n" +
+            raw,
+        );
+      } else {
+        setError(raw);
+      }
     }
   };
 
@@ -206,6 +229,19 @@ export function NfeQuery() {
               * É necessário que o certificado digital esteja configurado como
               exportável.
             </p>
+            {selectedCertInfo?.cnpj && (
+              <p className="mt-1 text-[10px] text-fg-5">
+                CNPJ do certificado: {formatCnpj(selectedCertInfo.cnpj)}
+              </p>
+            )}
+            {hasCnpjMismatch && (
+              <div className="mt-2 p-2 rounded-lg bg-amber-900/20 border border-amber-700/40 text-amber-400 text-xs">
+                Incompatibilidade detectada: CNPJ da chave (
+                {formatCnpj(keyCnpj)}) diferente do certificado selecionado (
+                {formatCnpj(selectedCertCnpj)}). Isso pode ser válido quando o
+                certificado é de interessado autorizado (destinatário/autXML).
+              </div>
+            )}
           </div>
         )}
 
