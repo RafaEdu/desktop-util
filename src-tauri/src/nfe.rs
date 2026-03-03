@@ -123,10 +123,6 @@ async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String
         return Err("Chave de acesso deve conter exatamente 44 dígitos numéricos".into());
     }
 
-    let uf_code: u32 = access_key[..2]
-        .parse()
-        .map_err(|_| "Código UF inválido na chave de acesso".to_string())?;
-
     let (mut pfx_bytes, password, cnpj) = export_cert_pfx(&thumbprint)?;
 
     if cnpj.is_empty() {
@@ -134,7 +130,7 @@ async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String
         return Err("Não foi possível extrair o CNPJ do certificado selecionado. Verifique se é um e-CNPJ (A1).".into());
     }
 
-    let soap_xml = build_soap_request(&access_key, &cnpj, uf_code, "1");
+    let soap_xml = build_soap_request(&access_key, &cnpj, "1");
     let endpoint = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
 
     let identity = reqwest::Identity::from_pkcs12_der(&pfx_bytes, &password)
@@ -150,7 +146,7 @@ async fn query_nfe_impl(thumbprint: String, access_key: String) -> Result<String
 
     let response = client
         .post(endpoint)
-        .header("Content-Type", "application/soap+xml; charset=utf-8")
+        .header("Content-Type", "application/soap+xml; charset=utf-8; action=\"http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse\"")
         .body(soap_xml)
         .send()
         .await
@@ -379,6 +375,8 @@ unsafe fn extract_cnpj_from_cert(
     cert: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
 ) -> String {
     use windows_sys::Win32::Security::Cryptography::*;
+
+    // 1. Tentar simple display name
     let mut buf = vec![0u16; 512];
     let len = CertGetNameStringW(
         cert,
@@ -396,6 +394,27 @@ unsafe fn extract_cnpj_from_cert(
     if let Some(cnpj) = find_cnpj_in_str(&simple) {
         return cnpj;
     }
+
+    // 2. Fallback: RDN string (alinhado com lib.rs)
+    const CERT_NAME_RDN_TYPE: u32 = 2;
+    let mut rdn_buf = vec![0u16; 2048];
+    let rdn_len = CertGetNameStringW(
+        cert,
+        CERT_NAME_RDN_TYPE,
+        0,
+        std::ptr::null(),
+        rdn_buf.as_mut_ptr(),
+        rdn_buf.len() as u32,
+    );
+    let rdn = if rdn_len > 1 {
+        String::from_utf16_lossy(&rdn_buf[..rdn_len as usize - 1])
+    } else {
+        String::new()
+    };
+    if let Some(cnpj) = find_cnpj_in_str(&rdn) {
+        return cnpj;
+    }
+
     String::new()
 }
 
@@ -423,10 +442,9 @@ fn find_cnpj_in_str(s: &str) -> Option<String> {
     None
 }
 
-fn build_soap_request(access_key: &str, cnpj: &str, uf_code: u32, tp_amb: &str) -> String {
+fn build_soap_request(access_key: &str, cnpj: &str, tp_amb: &str) -> String {
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap12:Header><nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><cUF>{uf}</cUF><versaoDados>1.01</versaoDados></nfeCabecMsg></soap12:Header><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><cUFAutor>{uf}</cUFAutor><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
-        uf = uf_code,
+        r#"<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"><nfeDadosMsg><distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01"><tpAmb>{tp_amb}</tpAmb><CNPJ>{cnpj}</CNPJ><consChNFe><chNFe>{key}</chNFe></consChNFe></distDFeInt></nfeDadosMsg></nfeDistDFeInteresse></soap12:Body></soap12:Envelope>"#,
         tp_amb = tp_amb,
         cnpj = cnpj,
         key = access_key,
@@ -440,6 +458,15 @@ fn parse_sefaz_response(soap_xml: &str, access_key: &str) -> Result<(NfeData, St
         .to_string();
     if cstat != "138" {
         let xmotivo = extract_tag_content(soap_xml, "xMotivo").unwrap_or_default();
+        if cstat == "641" {
+            return Err(format!(
+                "SEFAZ: 641 - NF-e indisponível para o emitente.\n\
+                 Possíveis causas:\n\
+                 - A NF-e ainda não foi distribuída pela SEFAZ (aguarde alguns minutos e tente novamente)\n\
+                 - A NF-e pode ter sido cancelada ou denegada\n\
+                 - O certificado digital pode não corresponder ao emitente ou destinatário da NF-e"
+            ));
+        }
         return Err(format!("SEFAZ: {} - {}", cstat, xmotivo));
     }
 
