@@ -14,6 +14,9 @@ import {
   ClipboardList, // Novo ícone
   FolderOpen,
   Briefcase,
+  Archive,
+  ArchiveRestore,
+  ChevronDown,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -50,6 +53,7 @@ interface DashboardProps {
 
 const FAVORITES_KEY = "dashboard_favorites";
 const CARD_ORDER_KEY = "dashboard_card_order";
+const ARCHIVED_KEY = "dashboard_archived";
 
 function getFavorites(): string[] {
   try {
@@ -69,6 +73,15 @@ function getCardOrder(): string[] {
   }
 }
 
+function getArchivedCards(): string[] {
+  try {
+    const stored = localStorage.getItem(ARCHIVED_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
 function normalizeOrder(order: string[], cardIds: string[]): string[] {
   const unique = [...new Set(order)];
   const known = unique.filter((id) => cardIds.includes(id));
@@ -79,6 +92,14 @@ function normalizeOrder(order: string[], cardIds: string[]): string[] {
 export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
   const [favorites, setFavorites] = useState<string[]>(getFavorites);
   const [cardOrder, setCardOrder] = useState<string[]>(getCardOrder);
+  const [archivedCards, setArchivedCards] =
+    useState<string[]>(getArchivedCards);
+  const [showUnarchiveConfirm, setShowUnarchiveConfirm] = useState<
+    string | null
+  >(null);
+  const [isArchiveDropZoneHovered, setIsArchiveDropZoneHovered] =
+    useState(false);
+  const [isArchivedExpanded, setIsArchivedExpanded] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
@@ -96,6 +117,24 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
       localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
       return next;
     });
+  };
+
+  const archiveCard = (id: string) => {
+    setArchivedCards((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const unarchiveCard = (id: string) => {
+    setArchivedCards((prev) => {
+      const next = prev.filter((cardId) => cardId !== id);
+      localStorage.setItem(ARCHIVED_KEY, JSON.stringify(next));
+      return next;
+    });
+    setShowUnarchiveConfirm(null);
   };
 
   const handleScreenCapture = async () => {
@@ -292,8 +331,23 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
   useEffect(() => {
     if (!isEditMode || !isPointerDragging || !draggingId) return;
 
+    const isOverArchiveZone = (x: number, y: number): boolean => {
+      const archiveZone = document.querySelector('[data-archive-zone="true"]');
+      if (!archiveZone) return false;
+      const rect = archiveZone.getBoundingClientRect();
+      return (
+        x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+      );
+    };
+
     const handleWindowPointerMove = (event: globalThis.PointerEvent) => {
       setDragPointer({ x: event.clientX, y: event.clientY });
+
+      // Verificar se está sobre a zona de arquivamento
+      setIsArchiveDropZoneHovered(
+        isOverArchiveZone(event.clientX, event.clientY),
+      );
+
       const targetId = getCardIdFromPoint(event.clientX, event.clientY);
       if (targetId && targetId !== draggingId) {
         setDragOverId(targetId);
@@ -319,16 +373,26 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
     };
 
     const handleWindowPointerUp = (event: globalThis.PointerEvent) => {
+      // Verificar se soltou na zona de arquivamento
+      if (isOverArchiveZone(event.clientX, event.clientY)) {
+        archiveCard(draggingId);
+        clearDragState();
+        setIsArchiveDropZoneHovered(false);
+        return;
+      }
+
       const targetId =
         getCardIdFromPoint(event.clientX, event.clientY) ??
         dragOverId ??
         draggingId;
       applyReorderFromDrag(draggingId, targetId, dragPlacement);
       clearDragState();
+      setIsArchiveDropZoneHovered(false);
     };
 
     const handleWindowPointerCancel = () => {
       clearDragState();
+      setIsArchiveDropZoneHovered(false);
     };
 
     window.addEventListener("pointermove", handleWindowPointerMove);
@@ -356,15 +420,21 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
     (orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
     (orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER);
 
-  const favoriteCards = [...cards]
+  // Filtrar cards arquivados
+  const visibleCards = cards.filter((card) => !archivedCards.includes(card.id));
+  const archivedCardsList = cards.filter((card) =>
+    archivedCards.includes(card.id),
+  );
+
+  const favoriteCards = [...visibleCards]
     .filter((card) => favorites.includes(card.id))
     .sort(byOrder);
-  const nonFavoriteCards = [...cards]
+  const nonFavoriteCards = [...visibleCards]
     .filter((card) => !favorites.includes(card.id))
     .sort(byOrder);
   const sorted = [...favoriteCards, ...nonFavoriteCards];
   const draggingCard = draggingId
-    ? (sorted.find((card) => card.id === draggingId) ?? null)
+    ? (cards.find((card) => card.id === draggingId) ?? null)
     : null;
 
   return (
@@ -373,7 +443,8 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-fg-3">
           <GripVertical className="h-3.5 w-3.5 text-accent" />
           <span>
-            Modo de reorganizacao ativo: arraste para reordenar os cards.
+            Modo de Reorganização ativo: segure e arraste para reordenar os
+            cards conforme quiser.
           </span>
         </div>
       )}
@@ -449,6 +520,80 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
         })}
       </div>
 
+      {/* Barra de Ferramentas Arquivadas */}
+      {(isEditMode || archivedCardsList.length > 0) && (
+        <div className="mt-4">
+          <button
+            onClick={() =>
+              !isEditMode && setIsArchivedExpanded(!isArchivedExpanded)
+            }
+            data-archive-zone="true"
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all",
+              "border border-dashed",
+              isEditMode
+                ? "border-amber-500/50 bg-amber-500/10"
+                : "border-edge-2 bg-subtle hover:bg-field",
+              isArchiveDropZoneHovered &&
+                "border-amber-500 bg-amber-500/20 scale-[1.01]",
+            )}
+          >
+            <Archive
+              className={cn(
+                "w-4 h-4",
+                isEditMode ? "text-amber-500" : "text-fg-5",
+              )}
+            />
+            <span className="text-xs text-fg-4 flex-1 text-left">
+              Ferramentas Arquivadas ({archivedCardsList.length})
+            </span>
+            {!isEditMode && archivedCardsList.length > 0 && (
+              <ChevronDown
+                className={cn(
+                  "w-4 h-4 text-fg-5 transition-transform",
+                  isArchivedExpanded && "rotate-180",
+                )}
+              />
+            )}
+            {isEditMode && (
+              <span className="text-xs text-amber-500/80">
+                Arraste cards aqui para arquivar
+              </span>
+            )}
+          </button>
+
+          {/* Cards arquivados expandidos */}
+          {(isArchivedExpanded || isEditMode) &&
+            archivedCardsList.length > 0 && (
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {archivedCardsList.map((card) => {
+                  const Icon = card.icon;
+                  return (
+                    <button
+                      key={card.id}
+                      onClick={() => {
+                        if (!isEditMode) {
+                          setShowUnarchiveConfirm(card.id);
+                        }
+                      }}
+                      className={cn(
+                        "flex items-center gap-2 p-2 rounded-lg border transition-all",
+                        "bg-field/50 border-edge hover:border-accent/50",
+                        "opacity-60 hover:opacity-100",
+                      )}
+                    >
+                      <Icon className="w-4 h-4 text-fg-5" />
+                      <span className="text-xs text-fg-4 truncate">
+                        {card.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+        </div>
+      )}
+
       {isEditMode && isPointerDragging && draggingCard && (
         <div
           className="pointer-events-none fixed z-50 w-[calc(50%-1.25rem)] max-w-[280px]"
@@ -467,6 +612,38 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
               <p className="mt-0.5 text-xs text-fg-5">
                 {draggingCard.description}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação para desarquivar */}
+      {showUnarchiveConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-surface border border-edge-2 rounded-xl w-full max-w-sm mx-4 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ArchiveRestore className="w-5 h-5 text-accent" />
+              <h3 className="text-sm font-semibold text-fg-2">
+                Desarquivar Ferramenta
+              </h3>
+            </div>
+            <p className="text-sm text-fg-4 mb-4">
+              Deseja desarquivar essa ferramenta? A ferramenta voltará ao
+              Dashboard principal.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowUnarchiveConfirm(null)}
+                className="px-3 py-1.5 text-sm text-fg-4 hover:text-fg-2 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => unarchiveCard(showUnarchiveConfirm)}
+                className="px-3 py-1.5 text-sm text-white rounded-lg transition-colors bg-indigo-600 hover:bg-indigo-500"
+              >
+                Desarquivar
+              </button>
             </div>
           </div>
         </div>
