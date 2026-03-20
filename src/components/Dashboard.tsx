@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState, type PointerEvent } from "react";
 import {
   Link,
   ShieldCheck,
   Activity,
   Scissors,
   Star,
+  GripVertical,
   FileSearch,
   FileStack,
   ListTodo,
@@ -44,9 +45,11 @@ interface DashboardCard {
 
 interface DashboardProps {
   onNavigate: (view: View) => void;
+  isEditMode: boolean;
 }
 
 const FAVORITES_KEY = "dashboard_favorites";
+const CARD_ORDER_KEY = "dashboard_card_order";
 
 function getFavorites(): string[] {
   try {
@@ -57,8 +60,33 @@ function getFavorites(): string[] {
   }
 }
 
-export function Dashboard({ onNavigate }: DashboardProps) {
+function getCardOrder(): string[] {
+  try {
+    const stored = localStorage.getItem(CARD_ORDER_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeOrder(order: string[], cardIds: string[]): string[] {
+  const unique = [...new Set(order)];
+  const known = unique.filter((id) => cardIds.includes(id));
+  const missing = cardIds.filter((id) => !known.includes(id));
+  return [...known, ...missing];
+}
+
+export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
   const [favorites, setFavorites] = useState<string[]>(getFavorites);
+  const [cardOrder, setCardOrder] = useState<string[]>(getCardOrder);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [isPointerDragging, setIsPointerDragging] = useState(false);
+  const [dragPointer, setDragPointer] = useState({ x: 0, y: 0 });
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragPlacement, setDragPlacement] = useState<"before" | "after">(
+    "before",
+  );
 
   const toggleFavorite = (id: string) => {
     setFavorites((prev) => {
@@ -166,22 +194,205 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     },
   ];
 
-  const sorted = [...cards].sort((a, b) => {
-    const aFav = favorites.includes(a.id) ? 0 : 1;
-    const bFav = favorites.includes(b.id) ? 0 : 1;
-    return aFav - bFav;
-  });
+  const cardIds = useMemo(() => cards.map((card) => card.id), [cards]);
+  const normalizedOrder = useMemo(
+    () => normalizeOrder(cardOrder, cardIds),
+    [cardOrder, cardIds],
+  );
+
+  useEffect(() => {
+    const changed = normalizedOrder.join("|") !== cardOrder.join("|");
+    if (!changed) return;
+    setCardOrder(normalizedOrder);
+    localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(normalizedOrder));
+  }, [cardOrder, normalizedOrder]);
+
+  const updateOrder = (next: string[]) => {
+    setCardOrder(next);
+    localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(next));
+  };
+
+  const clearDragState = () => {
+    setDraggingId(null);
+    setDragOverId(null);
+    setIsPointerDragging(false);
+    setDragOffset({ x: 0, y: 0 });
+    setDragPlacement("before");
+  };
+
+  const applyReorderFromDrag = (
+    sourceId: string,
+    targetId: string,
+    placement: "before" | "after",
+  ) => {
+    if (!sourceId || sourceId === targetId) {
+      return;
+    }
+
+    const orderIndex = new Map(normalizedOrder.map((id, index) => [id, index]));
+    const sortedIds = [...cardIds].sort(
+      (a, b) =>
+        (favorites.includes(a) ? 0 : 1) - (favorites.includes(b) ? 0 : 1) ||
+        (orderIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
+          (orderIndex.get(b) ?? Number.MAX_SAFE_INTEGER),
+    );
+
+    if (!sortedIds.includes(sourceId) || !sortedIds.includes(targetId)) {
+      return;
+    }
+
+    const sourceIsFavorite = favorites.includes(sourceId);
+    const targetIsFavorite = favorites.includes(targetId);
+
+    const withoutSource = sortedIds.filter((id) => id !== sourceId);
+    let insertIndex = withoutSource.indexOf(targetId);
+    if (insertIndex < 0) {
+      insertIndex = withoutSource.length;
+    } else if (placement === "after") {
+      insertIndex += 1;
+    }
+
+    if (!sourceIsFavorite && targetIsFavorite) {
+      // Excecao pedida: nao favorito nao ocupa posicao de favorito.
+      insertIndex = withoutSource.filter((id) => favorites.includes(id)).length;
+    }
+
+    const next = [...withoutSource];
+    next.splice(insertIndex, 0, sourceId);
+    updateOrder(next);
+  };
+
+  const getCardIdFromPoint = (x: number, y: number): string | null => {
+    const element = document.elementFromPoint(x, y);
+    const cardElement = element?.closest("[data-card-id]");
+    if (!cardElement) return null;
+    return cardElement.getAttribute("data-card-id");
+  };
+
+  const handlePointerDown = (
+    id: string,
+    event: PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (!isEditMode) return;
+    event.preventDefault();
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    setDragOffset({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+    setDragPointer({ x: event.clientX, y: event.clientY });
+
+    setDraggingId(id);
+    setDragOverId(id);
+    setDragPlacement("before");
+    setIsPointerDragging(true);
+  };
+
+  useEffect(() => {
+    if (!isEditMode || !isPointerDragging || !draggingId) return;
+
+    const handleWindowPointerMove = (event: globalThis.PointerEvent) => {
+      setDragPointer({ x: event.clientX, y: event.clientY });
+      const targetId = getCardIdFromPoint(event.clientX, event.clientY);
+      if (targetId && targetId !== draggingId) {
+        setDragOverId(targetId);
+
+        const targetElement = document.querySelector<HTMLElement>(
+          `[data-card-id="${targetId}"]`,
+        );
+        if (targetElement) {
+          const rect = targetElement.getBoundingClientRect();
+          const dx = event.clientX - (rect.left + rect.width / 2);
+          const dy = event.clientY - (rect.top + rect.height / 2);
+          const useHorizontal = Math.abs(dx) > Math.abs(dy);
+          const nextPlacement = useHorizontal
+            ? dx >= 0
+              ? "after"
+              : "before"
+            : dy >= 0
+              ? "after"
+              : "before";
+          setDragPlacement(nextPlacement);
+        }
+      }
+    };
+
+    const handleWindowPointerUp = (event: globalThis.PointerEvent) => {
+      const targetId =
+        getCardIdFromPoint(event.clientX, event.clientY) ??
+        dragOverId ??
+        draggingId;
+      applyReorderFromDrag(draggingId, targetId, dragPlacement);
+      clearDragState();
+    };
+
+    const handleWindowPointerCancel = () => {
+      clearDragState();
+    };
+
+    window.addEventListener("pointermove", handleWindowPointerMove);
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    window.addEventListener("pointercancel", handleWindowPointerCancel);
+
+    return () => {
+      window.removeEventListener("pointermove", handleWindowPointerMove);
+      window.removeEventListener("pointerup", handleWindowPointerUp);
+      window.removeEventListener("pointercancel", handleWindowPointerCancel);
+    };
+  }, [
+    isEditMode,
+    isPointerDragging,
+    draggingId,
+    dragOverId,
+    dragPlacement,
+    favorites,
+    normalizedOrder,
+    cardIds,
+  ]);
+
+  const orderIndex = new Map(normalizedOrder.map((id, index) => [id, index]));
+  const byOrder = (a: DashboardCard, b: DashboardCard) =>
+    (orderIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+    (orderIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER);
+
+  const favoriteCards = [...cards]
+    .filter((card) => favorites.includes(card.id))
+    .sort(byOrder);
+  const nonFavoriteCards = [...cards]
+    .filter((card) => !favorites.includes(card.id))
+    .sort(byOrder);
+  const sorted = [...favoriteCards, ...nonFavoriteCards];
+  const draggingCard = draggingId
+    ? (sorted.find((card) => card.id === draggingId) ?? null)
+    : null;
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4">
+      {isEditMode && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-fg-3">
+          <GripVertical className="h-3.5 w-3.5 text-accent" />
+          <span>
+            Modo de reorganizacao ativo: arraste para reordenar os cards.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         {sorted.map((card) => {
           const Icon = card.icon;
           const isFav = favorites.includes(card.id);
+          const isDragging = draggingId === card.id;
+          const isDropTarget = dragOverId === card.id && draggingId !== card.id;
+          const dropBefore = isDropTarget && dragPlacement === "before";
+          const dropAfter = isDropTarget && dragPlacement === "after";
           return (
             <button
               key={card.id}
+              data-card-id={card.id}
+              draggable={false}
+              onPointerDown={(event) => handlePointerDown(card.id, event)}
               onClick={() => {
+                if (isEditMode) return;
                 if (card.action) card.action();
                 else if (card.view) onNavigate(card.view);
               }}
@@ -189,7 +400,15 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 "relative flex flex-col items-center gap-2 p-4 rounded-xl border transition-all duration-200",
                 "bg-surface border-edge hover:border-indigo-500 hover:bg-surface/80",
                 "group text-left",
+                isEditMode &&
+                  "touch-none select-none cursor-grab active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-md",
+                isDragging && "opacity-25 scale-[0.985] border-accent",
+                isDropTarget && "border-accent bg-accent/5",
+                dropBefore && "ring-2 ring-accent ring-inset",
+                dropAfter &&
+                  "ring-2 ring-accent/80 shadow-[0_3px_0_0_var(--accent)]",
               )}
+              title={isEditMode ? "Arraste para reorganizar" : undefined}
             >
               {/* Favorite toggle */}
               <span
@@ -197,11 +416,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 tabIndex={0}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (isEditMode) return;
                   toggleFavorite(card.id);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.stopPropagation();
+                    if (isEditMode) return;
                     toggleFavorite(card.id);
                   }
                 }}
@@ -227,6 +448,29 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           );
         })}
       </div>
+
+      {isEditMode && isPointerDragging && draggingCard && (
+        <div
+          className="pointer-events-none fixed z-50 w-[calc(50%-1.25rem)] max-w-[280px]"
+          style={{
+            left: dragPointer.x - dragOffset.x,
+            top: dragPointer.y - dragOffset.y,
+            transform: "rotate(1.5deg) scale(1.02)",
+          }}
+        >
+          <div className="relative flex flex-col items-center gap-2 rounded-xl border border-accent/70 bg-surface/95 p-4 shadow-2xl backdrop-blur-sm transition-transform duration-75">
+            <draggingCard.icon className="h-8 w-8 text-accent" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-fg-2">
+                {draggingCard.title}
+              </p>
+              <p className="mt-0.5 text-xs text-fg-5">
+                {draggingCard.description}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

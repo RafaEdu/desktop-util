@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { Wrench, Pin, PinOff, Minus, ArrowLeft, Sun, Moon } from "lucide-react";
+import {
+  Wrench,
+  Pin,
+  PinOff,
+  Minus,
+  ArrowLeft,
+  Sun,
+  Moon,
+  GripVertical,
+} from "lucide-react";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { showWindowAboveTray } from "./lib/window";
@@ -53,7 +62,14 @@ function App() {
   const [movableMode, setMovableMode] = useState(() => {
     return localStorage.getItem("movableMode") === "true";
   });
+  const [layoutEditMode, setLayoutEditMode] = useState(false);
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    if (activeView !== "dashboard") {
+      setLayoutEditMode(false);
+    }
+  }, [activeView]);
 
   // ── Initial window setup on mount ──────────────────────────
   useEffect(() => {
@@ -149,6 +165,21 @@ function App() {
 
           {/* Controls */}
           <div className="flex items-center gap-1">
+            {activeView === "dashboard" && (
+              <button
+                onClick={() => setLayoutEditMode((prev) => !prev)}
+                className="p-1.5 rounded text-fg-5 hover:text-fg-3 hover:bg-field transition-colors"
+                title={
+                  layoutEditMode
+                    ? "Finalizar reorganizacao"
+                    : "Reorganizar cards"
+                }
+              >
+                <GripVertical
+                  className={layoutEditMode ? "w-4 h-4 text-accent" : "w-4 h-4"}
+                />
+              </button>
+            )}
             <button
               onClick={toggleMovableMode}
               className="p-1.5 rounded text-fg-5 hover:text-fg-3 hover:bg-field transition-colors"
@@ -183,7 +214,9 @@ function App() {
       </header>
 
       {/* Content */}
-      {activeView === "dashboard" && <Dashboard onNavigate={setActiveView} />}
+      {activeView === "dashboard" && (
+        <Dashboard onNavigate={setActiveView} isEditMode={layoutEditMode} />
+      )}
       {activeView === "tasks" && <Tasks />}
       {activeView === "timer" && <Timer />}
       {activeView === "links" && <QuickLinks />}
