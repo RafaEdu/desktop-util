@@ -1,6 +1,7 @@
 mod client_folders;
 mod nfe;
 mod pdf_utils;
+mod zip_utils;
 
 use std::{fs, sync::Mutex};
 use tauri::{
@@ -629,6 +630,7 @@ pub fn run() {
             client_folders::open_file,
             client_folders::copy_paths_to_directory,
             client_folders::create_directory,
+            zip_utils::create_zip,
         ])
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
