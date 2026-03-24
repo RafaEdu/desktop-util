@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufReader};
 use std::path::Path;
 use zip::{write::SimpleFileOptions, ZipWriter};
 

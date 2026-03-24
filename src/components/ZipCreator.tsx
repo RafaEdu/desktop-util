@@ -1,12 +1,34 @@
-import { useCallback, useRef, useState } from "react";
-import { FileArchive, Trash2, PackagePlus, File } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  FileArchive,
+  Trash2,
+  PackagePlus,
+  File as FileIcon,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 
 interface FileEntry {
   path: string;
   name: string;
+}
+
+type TauriDroppedFile = globalThis.File & { path?: string };
+
+function fileUriToPath(uri: string): string | null {
+  if (!uri.startsWith("file://")) {
+    return null;
+  }
+
+  let path = decodeURIComponent(uri.replace("file://", ""));
+
+  if (path.startsWith("/")) {
+    path = path.slice(1);
+  }
+
+  return path.replace(/\//g, "\\");
 }
 
 export function ZipCreator() {
@@ -38,6 +60,41 @@ export function ZipCreator() {
     setSuccess(null);
   };
 
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        if (event.payload.paths.length > 0) {
+          addPaths(event.payload.paths);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addPaths]);
+
+  const handlePickFiles = async () => {
+    const picked = await open({
+      multiple: true,
+      directory: false,
+      title: "Selecione os arquivos para compactar",
+    });
+
+    if (!picked) {
+      return;
+    }
+
+    const paths = Array.isArray(picked) ? picked : [picked];
+    addPaths(paths);
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -62,15 +119,32 @@ export function ZipCreator() {
 
     const paths: string[] = [];
     for (const item of Array.from(e.dataTransfer.files)) {
-      // In Tauri, the file path is accessible via the webkitRelativePath or
-      // via the DataTransfer API exposed by Tauri's webview
-      const filePath = (item as File & { path?: string }).path;
+      const filePath = (item as TauriDroppedFile).path;
       if (filePath) {
         paths.push(filePath);
       }
     }
+
+    if (paths.length === 0) {
+      const uriList = e.dataTransfer.getData("text/uri-list");
+      if (uriList) {
+        const uriPaths = uriList
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#"))
+          .map(fileUriToPath)
+          .filter((value): value is string => Boolean(value));
+
+        paths.push(...uriPaths);
+      }
+    }
+
     if (paths.length > 0) {
       addPaths(paths);
+    } else {
+      setError(
+        "Não foi possível identificar os arquivos arrastados. Clique na área para selecionar.",
+      );
     }
   };
 
@@ -114,8 +188,17 @@ export function ZipCreator() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onClick={handlePickFiles}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              void handlePickFiles();
+            }
+          }}
+          role="button"
+          tabIndex={0}
           className={cn(
-            "w-full flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-lg border-2 border-dashed transition-colors",
+            "w-full flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-lg border-2 border-dashed transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70",
             isDragOver
               ? "border-indigo-500 bg-indigo-500/10 text-indigo-400"
               : "border-edge-2 bg-subtle text-fg-5 hover:border-indigo-400 hover:text-indigo-400",
@@ -123,7 +206,7 @@ export function ZipCreator() {
         >
           <FileArchive className="w-8 h-8" />
           <p className="text-xs font-medium text-center">
-            Arraste arquivos aqui para adicioná-los ao ZIP
+            Arraste arquivos aqui ou clique para selecionar
           </p>
         </div>
 
@@ -135,7 +218,7 @@ export function ZipCreator() {
                 key={`${file.path}-${i}`}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-edge group"
               >
-                <File className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <FileIcon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <span
                   className="flex-1 text-xs text-fg-3 truncate"
                   title={file.path}
