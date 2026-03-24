@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Merge,
   Split,
@@ -12,6 +12,7 @@ import {
   Shrink,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 
@@ -23,6 +24,14 @@ type SplitMode =
   | "evenPages"
   | "afterPages"
   | "everyN";
+
+function isPdfPath(path: string) {
+  return path.toLowerCase().endsWith(".pdf");
+}
+
+function pickPdfPaths(paths: string[]) {
+  return paths.filter(isPdfPath);
+}
 
 export function PdfTools() {
   const [activeTab, setActiveTab] = useState<PdfTab>("merge");
@@ -85,9 +94,46 @@ export function PdfTools() {
 function MergePdf() {
   const [files, setFiles] = useState<string[]>([]);
   const [outputName, setOutputName] = useState("merged");
+  const [isDragOver, setIsDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const addPdfPaths = useCallback((paths: string[]) => {
+    const pdfPaths = pickPdfPaths(paths);
+    if (pdfPaths.length === 0) {
+      setError("Somente arquivos PDF podem ser adicionados.");
+      return;
+    }
+
+    setFiles((prev) => {
+      const existing = new Set(prev);
+      const unique = pdfPaths.filter((p) => !existing.has(p));
+      return [...prev, ...unique];
+    });
+    setError(null);
+    setSuccess(null);
+  }, []);
+
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        if (event.payload.paths.length > 0) {
+          addPdfPaths(event.payload.paths);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addPdfPaths]);
 
   const addFiles = async () => {
     const selected = await open({
@@ -96,7 +142,7 @@ function MergePdf() {
     });
     if (selected) {
       const paths = Array.isArray(selected) ? selected : [selected];
-      setFiles((prev) => [...prev, ...paths]);
+      addPdfPaths(paths);
     }
   };
 
@@ -149,10 +195,17 @@ function MergePdf() {
       {/* Add files button */}
       <button
         onClick={addFiles}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className={cn(
+          "w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed transition-colors",
+          isDragOver
+            ? "border-indigo-500 text-indigo-400 bg-indigo-500/10"
+            : "border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400",
+        )}
       >
         <Plus className="w-4 h-4" />
-        <span className="text-xs font-medium">Adicionar PDFs</span>
+        <span className="text-xs font-medium">
+          Arraste PDFs aqui ou clique para adicionar
+        </span>
       </button>
 
       {/* File list */}
@@ -252,9 +305,42 @@ function SplitPdf() {
   const [afterPages, setAfterPages] = useState("");
   const [everyN, setEveryN] = useState("2");
   const [prefix, setPrefix] = useState("split");
+  const [isDragOver, setIsDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const setPdfFromPaths = useCallback((paths: string[]) => {
+    const pdfPaths = pickPdfPaths(paths);
+    if (pdfPaths.length === 0) {
+      setError("Somente arquivos PDF podem ser adicionados.");
+      return;
+    }
+
+    setFile(pdfPaths[0]);
+    setError(null);
+    setSuccess(null);
+  }, []);
+
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        if (event.payload.paths.length > 0) {
+          setPdfFromPaths(event.payload.paths);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [setPdfFromPaths]);
 
   const selectFile = async () => {
     const selected = await open({
@@ -262,7 +348,8 @@ function SplitPdf() {
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
     if (selected) {
-      setFile(Array.isArray(selected) ? selected[0] : selected);
+      const path = Array.isArray(selected) ? selected[0] : selected;
+      setPdfFromPaths([path]);
     }
   };
 
@@ -345,11 +432,18 @@ function SplitPdf() {
       {/* File selection */}
       <button
         onClick={selectFile}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className={cn(
+          "w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed transition-colors",
+          isDragOver
+            ? "border-indigo-500 text-indigo-400 bg-indigo-500/10"
+            : "border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400",
+        )}
       >
         <FolderOpen className="w-4 h-4" />
         <span className="text-xs font-medium">
-          {fileName ? fileName : "Selecionar PDF"}
+          {fileName
+            ? fileName
+            : "Arraste um PDF aqui ou clique para selecionar"}
         </span>
       </button>
 
@@ -465,6 +559,7 @@ function SplitPdf() {
 
 function CompressPdf() {
   const [file, setFile] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [pdfInfo, setPdfInfo] = useState<{
     size: number;
     page_count: number;
@@ -480,6 +575,57 @@ function CompressPdf() {
     reductionPercent: number;
   } | null>(null);
 
+  const loadPdf = useCallback(async (path: string) => {
+    setFile(path);
+    setPdfInfo(null);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const info = await invoke<{
+        size: number;
+        page_count: number;
+        created: string;
+      }>("get_pdf_info", { path });
+      setPdfInfo(info);
+    } catch (err) {
+      setError(String(err));
+    }
+  }, []);
+
+  const setPdfFromPaths = useCallback(
+    (paths: string[]) => {
+      const pdfPaths = pickPdfPaths(paths);
+      if (pdfPaths.length === 0) {
+        setError("Somente arquivos PDF podem ser adicionados.");
+        return;
+      }
+
+      void loadPdf(pdfPaths[0]);
+    },
+    [loadPdf],
+  );
+
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setIsDragOver(true);
+      } else if (event.payload.type === "leave") {
+        setIsDragOver(false);
+      } else if (event.payload.type === "drop") {
+        setIsDragOver(false);
+        if (event.payload.paths.length > 0) {
+          setPdfFromPaths(event.payload.paths);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [setPdfFromPaths]);
+
   const selectFile = async () => {
     const selected = await open({
       multiple: false,
@@ -487,22 +633,7 @@ function CompressPdf() {
     });
     if (selected) {
       const path = Array.isArray(selected) ? selected[0] : selected;
-      setFile(path);
-      setPdfInfo(null);
-      setError(null);
-      setSuccess(null);
-
-      // Get PDF info
-      try {
-        const info = await invoke<{
-          size: number;
-          page_count: number;
-          created: string;
-        }>("get_pdf_info", { path });
-        setPdfInfo(info);
-      } catch (err) {
-        setError(String(err));
-      }
+      setPdfFromPaths([path]);
     }
   };
 
@@ -564,11 +695,18 @@ function CompressPdf() {
       {/* File selection */}
       <button
         onClick={selectFile}
-        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className={cn(
+          "w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed transition-colors",
+          isDragOver
+            ? "border-indigo-500 text-indigo-400 bg-indigo-500/10"
+            : "border-edge-2 text-fg-4 hover:border-indigo-500 hover:text-indigo-400",
+        )}
       >
         <FolderOpen className="w-4 h-4" />
         <span className="text-xs font-medium">
-          {file ? file.split(/[\\/]/).pop() || file : "Selecionar PDF"}
+          {file
+            ? file.split(/[\\/]/).pop() || file
+            : "Arraste um PDF aqui ou clique para selecionar"}
         </span>
       </button>
 
