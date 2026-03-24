@@ -17,6 +17,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  PackageOpen,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -35,7 +36,8 @@ type View =
   | "snippets"
   | "clipboard"
   | "clients"
-  | "societario";
+  | "societario"
+  | "compressor";
 
 interface DashboardCard {
   id: string;
@@ -230,6 +232,13 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
       description: "Consulta de CNPJ",
       icon: Briefcase,
       view: "societario",
+    },
+    {
+      id: "compressor",
+      title: "Criar ZIP",
+      description: "Criar arquivos compactados",
+      icon: PackageOpen,
+      view: "compressor",
     },
   ];
 

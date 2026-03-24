@@ -24,6 +24,7 @@ import { SnippetManager } from "./components/SnippetManager";
 import { ClipboardHistory } from "./components/ClipboardHistory";
 import { ClientManager } from "./components/ClientManager";
 import { Societario } from "./components/Societario";
+import { ZipCreator } from "./components/ZipCreator";
 import { useTheme } from "./lib/theme";
 
 type View =
@@ -39,7 +40,8 @@ type View =
   | "snippets"
   | "clipboard"
   | "clients"
-  | "societario";
+  | "societario"
+  | "compressor";
 
 const VIEW_TITLES: Record<View, string> = {
   dashboard: "Adcontec Útil",
@@ -55,6 +57,7 @@ const VIEW_TITLES: Record<View, string> = {
   clipboard: "Histórico (Win+V)",
   clients: "Pasta Clientes",
   societario: "Societário",
+  compressor: "Criar Arquivo Compactado",
 };
 
 function App() {
@@ -228,6 +231,7 @@ function App() {
       {activeView === "clipboard" && <ClipboardHistory />}
       {activeView === "clients" && <ClientManager />}
       {activeView === "societario" && <Societario />}
+      {activeView === "compressor" && <ZipCreator />}
 
       {/* Footer */}
       <footer className="px-4 py-2 bg-surface border-t border-edge">
