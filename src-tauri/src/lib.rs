@@ -17,6 +17,20 @@ struct AppState {
     movable_mode: Mutex<bool>,
 }
 
+const DEFAULT_WINDOW_WIDTH: f64 = 420.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 600.0;
+
+fn restore_main_window(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        DEFAULT_WINDOW_WIDTH,
+        DEFAULT_WINDOW_HEIGHT,
+    )));
+    let _ = window.center();
+    let _ = window.set_focus();
+}
+
 #[tauri::command]
 fn set_movable_mode(state: tauri::State<'_, AppState>, enabled: bool) {
     *state.movable_mode.lock().unwrap() = enabled;
@@ -705,11 +719,14 @@ pub fn run() {
         .setup(|app| {
             // ... (setup existente)
             // Menu items
+            let restore = MenuItemBuilder::with_id("restore", "Restaurar janela")
+                .build(app)?;
             let show_hide = MenuItemBuilder::with_id("toggle", "Mostrar/Ocultar")
                 .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Sair").build(app)?;
 
             let menu = MenuBuilder::new(app)
+                .item(&restore)
                 .item(&show_hide)
                 .separator()
                 .item(&quit)
@@ -720,6 +737,11 @@ pub fn run() {
                 .menu(&menu)
                 .tooltip("Adcontec Útil")
                 .on_menu_event(|app_handle, event| match event.id().as_ref() {
+                    "restore" => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            restore_main_window(&window);
+                        }
+                    }
                     "toggle" => {
                         if let Some(window) = app_handle.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
