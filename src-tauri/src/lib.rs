@@ -636,6 +636,7 @@ pub fn run() {
             pdf_utils::split_pdf,
             pdf_utils::get_pdf_info,
             pdf_utils::compress_pdf,
+            pdf_utils::sign_pdf_pades,
             client_folders::list_network_folders,
             client_folders::list_directory,
             client_folders::rename_entry,
@@ -649,6 +650,7 @@ pub fn run() {
         // ── Plugins ──────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(
             tauri_plugin_sql::Builder::default()

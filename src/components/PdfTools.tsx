@@ -10,13 +10,15 @@ import {
   Plus,
   FileText,
   Shrink,
+  PenLine,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
+import { PdfSignTool } from "./PdfSignTool";
 
-type PdfTab = "merge" | "split" | "compress";
+type PdfTab = "merge" | "split" | "compress" | "sign";
 
 type SplitMode =
   | "everyPage"
@@ -76,12 +78,26 @@ export function PdfTools() {
           <Shrink className="w-3.5 h-3.5" />
           Comprimir PDF
         </button>
+        <button
+          onClick={() => setActiveTab("sign")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+            activeTab === "sign"
+              ? "bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30"
+              : "text-fg-5 hover:text-fg-3 hover:bg-field",
+          )}
+        >
+          <PenLine className="w-3.5 h-3.5" />
+          Assinar PDF
+        </button>
       </div>
 
       {activeTab === "merge" ? (
         <MergePdf />
       ) : activeTab === "split" ? (
         <SplitPdf />
+      ) : activeTab === "sign" ? (
+        <PdfSignTool />
       ) : (
         <CompressPdf />
       )}

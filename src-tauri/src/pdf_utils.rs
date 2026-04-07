@@ -2,6 +2,10 @@ use chrono::{DateTime, Utc};
 use lopdf::{Document, Object, ObjectId};
 use std::collections::BTreeMap;
 use std::path::Path;
+use underskrift::{
+    finalize_signature, prepare_signature, DigestAlgorithm, RemoteSignerInfo, RemoteSigningOptions,
+    SignatureAlgorithm, SubFilter,
+};
 
 // ── Merge PDFs ──────────────────────────────────────────────────
 
@@ -350,4 +354,354 @@ pub fn compress_pdf(input_path: String, output_path: String, level: String) -> R
         .len();
 
     Ok(new_size)
+}
+
+// ── Real Digital Signature (PAdES) ─────────────────────────────
+
+#[tauri::command]
+pub async fn sign_pdf_pades(
+    pdf_bytes: Vec<u8>,
+    cert_thumbprint: String,
+    reason: Option<String>,
+    location: Option<String>,
+    contact_info: Option<String>,
+) -> Result<Vec<u8>, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (pdf_bytes, cert_thumbprint, reason, location, contact_info);
+        return Err("Assinatura PAdES com certificado do sistema disponível apenas no Windows.".into());
+    }
+
+    #[cfg(windows)]
+    {
+        sign_pdf_pades_windows(pdf_bytes, cert_thumbprint, reason, location, contact_info)
+    }
+}
+
+#[cfg(windows)]
+fn sign_pdf_pades_windows(
+    pdf_bytes: Vec<u8>,
+    cert_thumbprint: String,
+    reason: Option<String>,
+    location: Option<String>,
+    contact_info: Option<String>,
+) -> Result<Vec<u8>, String> {
+    with_cert_context(&cert_thumbprint, |cert_ctx| {
+        let signer_info = build_remote_signer_info(cert_ctx)?;
+
+        let options = RemoteSigningOptions {
+            sub_filter: SubFilter::Pades,
+            digest_algorithm: DigestAlgorithm::Sha256,
+            field_name: format!("Signature{}", Utc::now().timestamp_millis()),
+            page: 0,
+            reason,
+            location,
+            contact_info,
+            // Reserve extra space for CMS container to keep compatibility
+            // with larger certificate chains and avoid malformed output.
+            content_size: 65536,
+            algorithm_registry: None,
+        };
+
+        let prepared = prepare_signature(&pdf_bytes, &signer_info, &options)
+            .map_err(|e| format!("Falha ao preparar assinatura PAdES: {e}"))?;
+
+        let signature = sign_hash_with_cert_context(
+            cert_ctx,
+            &prepared.attrs_hash,
+            signer_info.signature_algorithm,
+        )?;
+
+        finalize_signature(prepared, &signature)
+            .map_err(|e| format!("Falha ao finalizar assinatura PAdES: {e}"))
+    })
+}
+
+#[cfg(windows)]
+fn normalize_thumbprint(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
+}
+
+#[cfg(windows)]
+fn with_cert_context<T, F>(thumbprint: &str, f: F) -> Result<T, String>
+where
+    F: FnOnce(*const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT) -> Result<T, String>,
+{
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    let normalized = normalize_thumbprint(thumbprint);
+    let mut hash_bytes = hex::decode(&normalized)
+        .map_err(|_| "Thumbprint do certificado inválido.".to_string())?;
+
+    unsafe {
+        let store_name: Vec<u16> = "MY\0".encode_utf16().collect();
+        let store = CertOpenSystemStoreW(0, store_name.as_ptr());
+        if store.is_null() {
+            return Err("Falha ao abrir repositório de certificados do Windows.".into());
+        }
+
+        let blob = CRYPT_INTEGER_BLOB {
+            cbData: hash_bytes.len() as u32,
+            pbData: hash_bytes.as_mut_ptr(),
+        };
+
+        let cert_ctx = CertFindCertificateInStore(
+            store,
+            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+            0,
+            CERT_FIND_SHA1_HASH,
+            &blob as *const _ as *const _,
+            std::ptr::null(),
+        );
+
+        if cert_ctx.is_null() {
+            CertCloseStore(store, 0);
+            return Err("Certificado selecionado não foi encontrado no repositório do Windows.".into());
+        }
+
+        let result = f(cert_ctx);
+        CertFreeCertificateContext(cert_ctx);
+        CertCloseStore(store, 0);
+        result
+    }
+}
+
+#[cfg(windows)]
+fn build_remote_signer_info(
+    cert_ctx: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+) -> Result<RemoteSignerInfo, String> {
+    use std::ffi::CStr;
+
+    unsafe {
+        let cert_der = std::slice::from_raw_parts(
+            (*cert_ctx).pbCertEncoded,
+            (*cert_ctx).cbCertEncoded as usize,
+        )
+        .to_vec();
+
+        let oid_ptr = (*(*cert_ctx).pCertInfo).SubjectPublicKeyInfo.Algorithm.pszObjId;
+        if oid_ptr.is_null() {
+            return Err("Certificado sem OID de algoritmo de chave pública.".into());
+        }
+
+        let oid = CStr::from_ptr(oid_ptr as *const i8)
+            .to_string_lossy()
+            .to_string();
+
+        let signature_algorithm = match oid.as_str() {
+            "1.2.840.113549.1.1.1" => SignatureAlgorithm::RsaPkcs1v15,
+            "1.2.840.10045.2.1" => {
+                return Err(
+                    "Certificados ECDSA ainda não são suportados neste fluxo PAdES. Use um certificado RSA.".into(),
+                )
+            }
+            _ => {
+                return Err(format!(
+                    "Algoritmo de certificado não suportado para assinatura PAdES: OID {}",
+                    oid
+                ))
+            }
+        };
+
+        Ok(RemoteSignerInfo {
+            certificate_der: cert_der.clone(),
+            chain_der: vec![cert_der],
+            digest_algorithm: DigestAlgorithm::Sha256,
+            signature_algorithm,
+        })
+    }
+}
+
+#[cfg(windows)]
+fn sign_hash_with_cert_context(
+    cert_ctx: *const windows_sys::Win32::Security::Cryptography::CERT_CONTEXT,
+    hash: &[u8],
+    signature_algorithm: SignatureAlgorithm,
+) -> Result<Vec<u8>, String> {
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    if signature_algorithm != SignatureAlgorithm::RsaPkcs1v15 {
+        return Err("Somente assinatura RSA PKCS#1 v1.5 está habilitada neste fluxo.".into());
+    }
+
+    unsafe {
+        let mut key_handle: usize = 0;
+        let mut key_spec: u32 = 0;
+        let mut must_free: i32 = 0;
+
+        let acquired = CryptAcquireCertificatePrivateKey(
+            cert_ctx,
+            CRYPT_ACQUIRE_CACHE_FLAG
+                | CRYPT_ACQUIRE_ALLOW_NCRYPT_KEY_FLAG
+                | CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG,
+            std::ptr::null_mut(),
+            &mut key_handle,
+            &mut key_spec,
+            &mut must_free,
+        );
+
+        if acquired == 0 {
+            return Err("Não foi possível obter a chave privada do certificado selecionado.".into());
+        }
+
+        // Primeiro tenta CNG para cobrir provedores modernos e chaves legadas
+        // retornadas como handle compatível com NCrypt.
+        let sign_result = match sign_hash_ncrypt_rsa(key_handle, hash) {
+            Ok(signature) => Ok(signature),
+            Err(ncrypt_error) => {
+                if key_spec == CERT_NCRYPT_KEY_SPEC {
+                    Err(format!(
+                        "Falha ao assinar com chave NCrypt do certificado: {}",
+                        ncrypt_error
+                    ))
+                } else {
+                    sign_hash_capi_rsa(key_handle, key_spec, hash).map_err(|capi_error| {
+                        format!(
+                            "Falha ao assinar hash com certificado. Tentativa CNG: {}. Tentativa CAPI: {}",
+                            ncrypt_error, capi_error
+                        )
+                    })
+                }
+            }
+        };
+
+        if must_free != 0 {
+            if key_spec == CERT_NCRYPT_KEY_SPEC {
+                let _ = NCryptFreeObject(key_handle);
+            } else {
+                let _ = CryptReleaseContext(key_handle, 0);
+            }
+        }
+
+        sign_result
+    }
+}
+
+#[cfg(windows)]
+fn sign_hash_ncrypt_rsa(key_handle: usize, hash: &[u8]) -> Result<Vec<u8>, String> {
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    unsafe {
+        let alg_id: Vec<u16> = "SHA256\0".encode_utf16().collect();
+        let mut padding_info = BCRYPT_PKCS1_PADDING_INFO {
+            pszAlgId: alg_id.as_ptr(),
+        };
+
+        let mut sig_len: u32 = 0;
+        let status = NCryptSignHash(
+            key_handle,
+            &mut padding_info as *mut _ as *mut _,
+            hash.as_ptr() as *mut u8,
+            hash.len() as u32,
+            std::ptr::null_mut(),
+            0,
+            &mut sig_len,
+            NCRYPT_PAD_PKCS1_FLAG,
+        );
+
+        if status != 0 {
+            return Err(format!(
+                "Falha ao assinar hash com CNG (NCryptSignHash): código {}",
+                status
+            ));
+        }
+
+        let mut signature = vec![0u8; sig_len as usize];
+        let status = NCryptSignHash(
+            key_handle,
+            &mut padding_info as *mut _ as *mut _,
+            hash.as_ptr() as *mut u8,
+            hash.len() as u32,
+            signature.as_mut_ptr(),
+            sig_len,
+            &mut sig_len,
+            NCRYPT_PAD_PKCS1_FLAG,
+        );
+
+        if status != 0 {
+            return Err(format!(
+                "Falha ao gerar assinatura com CNG: código {}",
+                status
+            ));
+        }
+
+        signature.truncate(sig_len as usize);
+        Ok(signature)
+    }
+}
+
+#[cfg(windows)]
+fn sign_hash_capi_rsa(key_handle: usize, key_spec: u32, hash: &[u8]) -> Result<Vec<u8>, String> {
+    use windows_sys::Win32::Foundation::GetLastError;
+    use windows_sys::Win32::Security::Cryptography::*;
+
+    unsafe {
+        let mut hash_handle: usize = 0;
+        if CryptCreateHash(key_handle, CALG_SHA_256, 0, 0, &mut hash_handle) == 0 {
+            let last_error = GetLastError();
+            return Err(format!(
+                "Falha ao criar contexto de hash para assinatura CAPI (CALG_SHA_256). Código Win32: {}",
+                last_error
+            ));
+        }
+
+        let set_hash_ok =
+            CryptSetHashParam(hash_handle, HP_HASHVAL, hash.as_ptr(), 0) != 0;
+        if !set_hash_ok {
+            let last_error = GetLastError();
+            CryptDestroyHash(hash_handle);
+            return Err(format!(
+                "Falha ao configurar hash para assinatura CAPI (HP_HASHVAL). Código Win32: {}",
+                last_error
+            ));
+        }
+
+        let mut sig_len: u32 = 0;
+        let get_len_ok = CryptSignHashW(
+            hash_handle,
+            key_spec,
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            &mut sig_len,
+        ) != 0;
+
+        if !get_len_ok {
+            let last_error = GetLastError();
+            CryptDestroyHash(hash_handle);
+            return Err(format!(
+                "Falha ao obter tamanho da assinatura CAPI. Código Win32: {}",
+                last_error
+            ));
+        }
+
+        let mut signature = vec![0u8; sig_len as usize];
+        let sign_ok = CryptSignHashW(
+            hash_handle,
+            key_spec,
+            std::ptr::null(),
+            0,
+            signature.as_mut_ptr(),
+            &mut sig_len,
+        ) != 0;
+
+        CryptDestroyHash(hash_handle);
+
+        if !sign_ok {
+            let last_error = GetLastError();
+            return Err(format!(
+                "Falha ao assinar hash via CAPI. Código Win32: {}",
+                last_error
+            ));
+        }
+
+        signature.truncate(sig_len as usize);
+        // CAPI retorna assinatura RSA em little-endian; PDF/CMS espera big-endian.
+        signature.reverse();
+        Ok(signature)
+    }
 }
