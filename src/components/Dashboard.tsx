@@ -15,6 +15,7 @@ import {
   ArchiveRestore,
   ChevronDown,
   PackageOpen,
+  PenLine,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -29,6 +30,7 @@ type View =
   | "certificates"
   | "status"
   | "pdf"
+  | "pdf-sign"
   | "snippets"
   | "clipboard"
   | "compressor";
@@ -205,6 +207,13 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
       description: "Unir, dividir e comprimir",
       icon: FileStack,
       view: "pdf",
+    },
+    {
+      id: "pdf-sign",
+      title: "Assinar PDF",
+      description: "Assinar documentos PDF",
+      icon: PenLine,
+      view: "pdf-sign",
     },
     {
       id: "compressor",

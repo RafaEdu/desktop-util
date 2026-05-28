@@ -17,6 +17,7 @@ import { QuickLinks } from "./components/QuickLinks";
 import { Certificates } from "./components/Certificates";
 import { ServiceStatus } from "./components/ServiceStatus";
 import { PdfTools } from "./components/PdfTools";
+import { PdfSignTool } from "./components/PdfSignTool";
 import { Tasks } from "./components/Tasks";
 import { Timer } from "./components/Timer";
 import { SnippetManager } from "./components/SnippetManager";
@@ -33,6 +34,7 @@ type View =
   | "certificates"
   | "status"
   | "pdf"
+  | "pdf-sign"
   | "snippets"
   | "clipboard"
   | "compressor";
@@ -46,6 +48,7 @@ const VIEW_TITLES: Record<View, string> = {
   certificates: "Certificados",
   status: "Status de Serviços",
   pdf: "Ferramentas de PDF",
+  "pdf-sign": "Assinar PDF",
   snippets: "Textos Prontos",
   clipboard: "Histórico (Win+V)",
   compressor: "Criar Arquivo Compactado",
@@ -217,6 +220,7 @@ function App() {
       {activeView === "certificates" && <Certificates />}
       {activeView === "status" && <ServiceStatus />}
       {activeView === "pdf" && <PdfTools />}
+      {activeView === "pdf-sign" && <PdfSignTool />}
       {activeView === "snippets" && <SnippetManager />}
       {activeView === "clipboard" && <ClipboardHistory />}
       {activeView === "compressor" && <ZipCreator />}
