@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 danfe.pdf
+
+# Agent files
+.agents
+skills-lock.json

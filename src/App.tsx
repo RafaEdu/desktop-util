@@ -16,14 +16,11 @@ import { Dashboard } from "./components/Dashboard";
 import { QuickLinks } from "./components/QuickLinks";
 import { Certificates } from "./components/Certificates";
 import { ServiceStatus } from "./components/ServiceStatus";
-import { NfeQuery } from "./components/NfeQuery";
 import { PdfTools } from "./components/PdfTools";
 import { Tasks } from "./components/Tasks";
 import { Timer } from "./components/Timer";
 import { SnippetManager } from "./components/SnippetManager";
 import { ClipboardHistory } from "./components/ClipboardHistory";
-import { ClientManager } from "./components/ClientManager";
-import { Societario } from "./components/Societario";
 import { ZipCreator } from "./components/ZipCreator";
 import { useTheme } from "./lib/theme";
 
@@ -35,12 +32,9 @@ type View =
   | "links"
   | "certificates"
   | "status"
-  | "nfe"
   | "pdf"
   | "snippets"
   | "clipboard"
-  | "clients"
-  | "societario"
   | "compressor";
 
 const VIEW_TITLES: Record<View, string> = {
@@ -51,12 +45,9 @@ const VIEW_TITLES: Record<View, string> = {
   links: "Links Rápidos",
   certificates: "Certificados",
   status: "Status de Serviços",
-  nfe: "Consulta NFe",
   pdf: "Ferramentas de PDF",
   snippets: "Textos Prontos",
   clipboard: "Histórico (Win+V)",
-  clients: "Pasta Clientes",
-  societario: "Societário",
   compressor: "Criar Arquivo Compactado",
 };
 
@@ -225,12 +216,9 @@ function App() {
       {activeView === "links" && <QuickLinks />}
       {activeView === "certificates" && <Certificates />}
       {activeView === "status" && <ServiceStatus />}
-      {activeView === "nfe" && <NfeQuery />}
       {activeView === "pdf" && <PdfTools />}
       {activeView === "snippets" && <SnippetManager />}
       {activeView === "clipboard" && <ClipboardHistory />}
-      {activeView === "clients" && <ClientManager />}
-      {activeView === "societario" && <Societario />}
       {activeView === "compressor" && <ZipCreator />}
 
       {/* Footer */}

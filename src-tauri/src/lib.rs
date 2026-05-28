@@ -1,9 +1,7 @@
-mod client_folders;
-mod nfe;
 mod pdf_utils;
 mod zip_utils;
 
-use std::{fs, sync::Mutex};
+use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
@@ -34,11 +32,6 @@ fn restore_main_window(window: &tauri::WebviewWindow) {
 #[tauri::command]
 fn set_movable_mode(state: tauri::State<'_, AppState>, enabled: bool) {
     *state.movable_mode.lock().unwrap() = enabled;
-}
-
-#[tauri::command]
-fn save_binary_file(output_path: String, bytes: Vec<u8>) -> Result<(), String> {
-    fs::write(output_path, bytes).map_err(|e| format!("Falha ao salvar arquivo: {}", e))
 }
 
 // ── Certificate Types ───────────────────────────────────────────
@@ -623,28 +616,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_movable_mode,
-            save_binary_file,
             get_certificates,
             delete_certificates,
             start_screen_capture,
             open_external_link,
-            nfe::query_nfe,
-            nfe::open_danfe,
-            nfe::download_danfe,
-            nfe::query_nfe_portal,
             pdf_utils::merge_pdfs,
             pdf_utils::split_pdf,
             pdf_utils::get_pdf_info,
             pdf_utils::compress_pdf,
             pdf_utils::sign_pdf_pades,
-            client_folders::list_network_folders,
-            client_folders::list_directory,
-            client_folders::rename_entry,
-            client_folders::move_entry,
-            client_folders::delete_entry,
-            client_folders::open_file,
-            client_folders::copy_paths_to_directory,
-            client_folders::create_directory,
             zip_utils::create_zip,
         ])
         // ── Plugins ──────────────────────────────────────────────
@@ -693,17 +673,6 @@ pub fn run() {
                                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                                 title TEXT NOT NULL,
                                 url TEXT NOT NULL,
-                                created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                            );",
-                            kind: tauri_plugin_sql::MigrationKind::Up,
-                        },
-                        tauri_plugin_sql::Migration {
-                            version: 6,
-                            description: "create client_folders table",
-                            sql: "CREATE TABLE IF NOT EXISTS client_folders (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                folder_name TEXT NOT NULL,
-                                folder_path TEXT NOT NULL UNIQUE,
                                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
                             );",
                             kind: tauri_plugin_sql::MigrationKind::Up,

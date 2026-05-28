@@ -6,14 +6,11 @@ import {
   Scissors,
   Star,
   GripVertical,
-  FileSearch,
   FileStack,
   ListTodo,
   Timer as TimerIcon,
   MessageSquareText, // Novo ícone
   ClipboardList, // Novo ícone
-  FolderOpen,
-  Briefcase,
   Archive,
   ArchiveRestore,
   ChevronDown,
@@ -31,12 +28,9 @@ type View =
   | "links"
   | "certificates"
   | "status"
-  | "nfe"
   | "pdf"
   | "snippets"
   | "clipboard"
-  | "clients"
-  | "societario"
   | "compressor";
 
 interface DashboardCard {
@@ -199,13 +193,6 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
       view: "status",
     },
     {
-      id: "nfe",
-      title: "Consulta NFe",
-      description: "Visualizar DANFE",
-      icon: FileSearch,
-      view: "nfe",
-    },
-    {
       id: "capture",
       title: "Captura de Tela",
       description: "Recorte (Win+Shift+S)",
@@ -218,20 +205,6 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
       description: "Unir, dividir e comprimir",
       icon: FileStack,
       view: "pdf",
-    },
-    {
-      id: "clients",
-      title: "Pasta Clientes",
-      description: "Gerenciar pastas de clientes",
-      icon: FolderOpen,
-      view: "clients",
-    },
-    {
-      id: "societario",
-      title: "Societário",
-      description: "Consulta de CNPJ",
-      icon: Briefcase,
-      view: "societario",
     },
     {
       id: "compressor",
