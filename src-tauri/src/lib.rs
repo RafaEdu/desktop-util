@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager;
@@ -17,6 +17,10 @@ struct AppState {
 
 const DEFAULT_WINDOW_WIDTH: f64 = 420.0;
 const DEFAULT_WINDOW_HEIGHT: f64 = 600.0;
+const WINDOW_MODE_WIDTH: f64 = 900.0;
+const WINDOW_MODE_HEIGHT: f64 = 650.0;
+const WINDOW_MODE_MIN_WIDTH: f64 = 600.0;
+const WINDOW_MODE_MIN_HEIGHT: f64 = 400.0;
 
 fn restore_main_window(window: &tauri::WebviewWindow) {
     let _ = window.unminimize();
@@ -25,13 +29,53 @@ fn restore_main_window(window: &tauri::WebviewWindow) {
         DEFAULT_WINDOW_WIDTH,
         DEFAULT_WINDOW_HEIGHT,
     )));
+    let _ = window.set_decorations(false);
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_min_size(None::<tauri::LogicalSize<f64>>);
+    let _ = window.set_max_size(None::<tauri::LogicalSize<f64>>);
     let _ = window.center();
     let _ = window.set_focus();
+    let _ = window.emit("restore-compact-mode", ());
 }
 
 #[tauri::command]
 fn set_movable_mode(state: tauri::State<'_, AppState>, enabled: bool) {
     *state.movable_mode.lock().unwrap() = enabled;
+}
+
+#[tauri::command]
+fn set_view_mode(window: tauri::WebviewWindow, mode: String) -> Result<(), String> {
+    match mode.as_str() {
+        "compact" => {
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                DEFAULT_WINDOW_WIDTH,
+                DEFAULT_WINDOW_HEIGHT,
+            )));
+            let _ = window.set_resizable(true);
+            let _ = window.set_decorations(false);
+            let _ = window.set_always_on_top(true);
+            let _ = window.set_min_size(None::<tauri::LogicalSize<f64>>);
+            let _ = window.set_max_size(None::<tauri::LogicalSize<f64>>);
+            let _ = window.center();
+        }
+        "window" => {
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                WINDOW_MODE_WIDTH,
+                WINDOW_MODE_HEIGHT,
+            )));
+            let _ = window.set_resizable(true);
+            let _ = window.set_decorations(true);
+            let _ = window.set_always_on_top(false);
+            let _ = window.set_min_size(Some(tauri::LogicalSize::new(
+                WINDOW_MODE_MIN_WIDTH,
+                WINDOW_MODE_MIN_HEIGHT,
+            )));
+            let _ = window.set_max_size(None::<tauri::LogicalSize<f64>>);
+            let _ = window.center();
+        }
+        _ => return Err(format!("Modo inválido: {}", mode)),
+    }
+    Ok(())
 }
 
 // ── Certificate Types ───────────────────────────────────────────
@@ -616,6 +660,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_movable_mode,
+            set_view_mode,
             get_certificates,
             delete_certificates,
             start_screen_capture,

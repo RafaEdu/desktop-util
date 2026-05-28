@@ -1,6 +1,6 @@
 [package]
 name = "adcontec-util"
-version = "4.1.0"
+version = "5.0.0"
 description = "A Tauri App"
 authors = ["AD CONTEC Contabilidade LTDA"]
 edition = "2021"

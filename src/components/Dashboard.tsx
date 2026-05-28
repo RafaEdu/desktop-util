@@ -47,6 +47,7 @@ interface DashboardCard {
 interface DashboardProps {
   onNavigate: (view: View) => void;
   isEditMode: boolean;
+  viewMode: "compact" | "window";
 }
 
 const FAVORITES_KEY = "dashboard_favorites";
@@ -87,7 +88,7 @@ function normalizeOrder(order: string[], cardIds: string[]): string[] {
   return [...known, ...missing];
 }
 
-export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
+export function Dashboard({ onNavigate, isEditMode, viewMode }: DashboardProps) {
   const [favorites, setFavorites] = useState<string[]>(getFavorites);
   const [cardOrder, setCardOrder] = useState<string[]>(getCardOrder);
   const [archivedCards, setArchivedCards] =
@@ -439,7 +440,7 @@ export function Dashboard({ onNavigate, isEditMode }: DashboardProps) {
           </span>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
+      <div className={viewMode === "window" ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" : "grid grid-cols-2 gap-3"}>
         {sorted.map((card) => {
           const Icon = card.icon;
           const isFav = favorites.includes(card.id);

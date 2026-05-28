@@ -85,3 +85,22 @@
 
   --t-accent: #4f46e5;
 }
+
+/* ── Window-mode sidebar scrollbar styling ────────────────── */
+
+aside::-webkit-scrollbar {
+  width: 4px;
+}
+
+aside::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside::-webkit-scrollbar-thumb {
+  background: var(--t-edge-2);
+  border-radius: 2px;
+}
+
+aside::-webkit-scrollbar-thumb:hover {
+  background: var(--t-edge-3);
+}
