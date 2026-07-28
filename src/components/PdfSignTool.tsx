@@ -2,18 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Expand,
   FolderOpen,
   Save,
-  Move,
   RefreshCw,
   ShieldCheck,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { PDFDocument, rgb } from "pdf-lib";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, PhysicalSize } from "@tauri-apps/api/window";
 import { cn } from "../lib/cn";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -23,7 +26,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 const SIGNATURE_WIDTH = 160;
 const SIGNATURE_HEIGHT = 64;
-const SIGNATURE_OFFSET = 20;
 const SIGNATURE_ASPECT_RATIO = SIGNATURE_WIDTH / SIGNATURE_HEIGHT;
 const MIN_SIGNATURE_WIDTH = 60;
 const MIN_SIGNATURE_FONT_SIZE = 3;
@@ -55,6 +57,13 @@ type DragOffset = {
 type ResizeState = {
   mouseX: number;
   startWidth: number;
+};
+
+type DrawRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 type CertInfo = {
@@ -204,6 +213,7 @@ export function PdfSignTool() {
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageWidth, setPageWidth] = useState(320);
+  const [zoomLevel, setZoomLevel] = useState(1.0);
   const [pageSize, setPageSize] = useState<PageSize | null>(null);
   const [placement, setPlacement] = useState<SignaturePlacement | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
@@ -217,12 +227,17 @@ export function PdfSignTool() {
   const [showCertModal, setShowCertModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawRect, setDrawRect] = useState<DrawRect | null>(null);
+  const [needsExpansion, setNeedsExpansion] = useState(false);
+  const [expandingWindow, setExpandingWindow] = useState(false);
 
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const dropZoneRef = useRef<HTMLButtonElement | null>(null);
   const pageLayerRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef<DragOffset>({ x: 0, y: 0 });
   const resizeStateRef = useRef<ResizeState>({ mouseX: 0, startWidth: 0 });
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const pdfPreviewBytes = useMemo(
     () => (pdfBytes ? new Uint8Array(pdfBytes) : null),
@@ -239,7 +254,14 @@ export function PdfSignTool() {
     () => certs.find((cert) => cert.thumbprint === selectedThumbprint) ?? null,
     [certs, selectedThumbprint],
   );
-  const canSign = Boolean(pdfBytes && placement && !savingPdf);
+  const canSign = Boolean(
+    pdfBytes && placement && !savingPdf && !needsExpansion,
+  );
+
+  const displayPageWidth = useMemo(
+    () => Math.round(pageWidth * zoomLevel),
+    [pageWidth, zoomLevel],
+  );
 
   const currentFileName = pdfPath
     ? pdfPath.split(/[\\/]/).pop() || pdfPath
@@ -269,7 +291,6 @@ export function PdfSignTool() {
     try {
       const bytes = await readFile(selectedPath);
       setPdfPath(selectedPath);
-      // Keep original bytes for signing and use a dedicated clone for preview.
       setPdfBytes(new Uint8Array(bytes));
       setNumPages(0);
       setCurrentPage(1);
@@ -277,6 +298,27 @@ export function PdfSignTool() {
       setPlacement(null);
       setError(null);
       setSuccess(null);
+      setDrawRect(null);
+      setIsDrawing(false);
+      setZoomLevel(1.0);
+
+      const win = getCurrentWindow();
+      const size = await win.outerSize();
+      if (size.width < 700 || size.height < 650) {
+        setNeedsExpansion(true);
+        setExpandingWindow(true);
+        try {
+          await win.setSize(new PhysicalSize(1000, 750));
+          await win.center();
+          setNeedsExpansion(false);
+        } catch {
+          // Auto-expand failed – banner stays visible for manual action
+        } finally {
+          setExpandingWindow(false);
+        }
+      } else {
+        setNeedsExpansion(false);
+      }
     } catch (err) {
       setError(`Falha ao ler o PDF selecionado: ${String(err)}`);
     } finally {
@@ -284,32 +326,104 @@ export function PdfSignTool() {
     }
   }, []);
 
-  const placeSignatureInCurrentPage = useCallback(() => {
-    if (!pageSize) {
-      return;
+  const handleExpandWindow = useCallback(async () => {
+    setExpandingWindow(true);
+    try {
+      const win = getCurrentWindow();
+      await win.setSize(new PhysicalSize(1000, 750));
+      await win.center();
+      setNeedsExpansion(false);
+    } catch (err) {
+      setError(`Falha ao expandir janela: ${String(err)}`);
+    } finally {
+      setExpandingWindow(false);
     }
+  }, []);
 
-    const maxX = Math.max(0, pageSize.width - SIGNATURE_WIDTH);
-    const maxY = Math.max(0, pageSize.height - SIGNATURE_HEIGHT);
+  const handlePageMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!pageSize) return;
+      const layer = pageLayerRef.current;
+      if (!layer) return;
 
-    setPlacement({
-      page: currentPage,
-      x: clamp(SIGNATURE_OFFSET, 0, maxX),
-      y: clamp(SIGNATURE_OFFSET, 0, maxY),
-      width: SIGNATURE_WIDTH,
-      height: SIGNATURE_HEIGHT,
-      renderedWidth: pageSize.width,
-      renderedHeight: pageSize.height,
-    });
-  }, [currentPage, pageSize]);
+      const rect = layer.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const start = { x, y };
+
+      drawStartRef.current = start;
+      setDrawRect({ x, y, width: 0, height: 0 });
+      setIsDrawing(true);
+      setPlacement(null);
+    },
+    [pageSize],
+  );
 
   useEffect(() => {
-    if (!pageSize || placement) {
-      return;
-    }
+    if (!isDrawing) return;
 
-    placeSignatureInCurrentPage();
-  }, [pageSize, placement, placeSignatureInCurrentPage]);
+    const onMouseMove = (event: MouseEvent) => {
+      const start = drawStartRef.current;
+      if (!start) return;
+      const layer = pageLayerRef.current;
+      if (!layer) return;
+
+      const rect = layer.getBoundingClientRect();
+      const currentX = event.clientX - rect.left;
+      const currentY = event.clientY - rect.top;
+
+      const x = Math.min(start.x, currentX);
+      const y = Math.min(start.y, currentY);
+      const width = Math.abs(currentX - start.x);
+      const height = Math.abs(currentY - start.y);
+
+      setDrawRect({ x, y, width, height });
+    };
+
+    const onMouseUp = () => {
+      setIsDrawing(false);
+      drawStartRef.current = null;
+
+      setDrawRect((current) => {
+        if (!current) return null;
+
+        const MIN_WIDTH = 60;
+        const MIN_HEIGHT = 20;
+
+        if (current.width < MIN_WIDTH || current.height < MIN_HEIGHT) {
+          return null;
+        }
+
+        const layer = pageLayerRef.current;
+        const canvas = layer?.querySelector("canvas");
+        const canvasRect = canvas?.getBoundingClientRect();
+        const renderedWidth =
+          canvasRect?.width || pageSize?.width || current.width;
+        const renderedHeight =
+          canvasRect?.height || pageSize?.height || current.height;
+
+        setPlacement({
+          page: currentPage,
+          x: current.x,
+          y: current.y,
+          width: current.width,
+          height: current.height,
+          renderedWidth,
+          renderedHeight,
+        });
+
+        return null;
+      });
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [isDrawing, currentPage, pageSize]);
 
   const updatePageSize = useCallback(() => {
     const layer = pageLayerRef.current;
@@ -386,7 +500,13 @@ export function PdfSignTool() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [currentPage, pageWidth, pdfBytes, updatePageSize]);
+  }, [currentPage, displayPageWidth, pdfBytes, updatePageSize]);
+
+  useEffect(() => {
+    setIsDrawing(false);
+    setDrawRect(null);
+    drawStartRef.current = null;
+  }, [currentPage]);
 
   useEffect(() => {
     if (!dragging && !resizing) {
@@ -557,6 +677,7 @@ export function PdfSignTool() {
     }
 
     event.preventDefault();
+    event.stopPropagation();
     dragOffsetRef.current = {
       x: event.clientX - layerRect.left - placement.x,
       y: event.clientY - layerRect.top - placement.y,
@@ -777,12 +898,56 @@ export function PdfSignTool() {
         </div>
       )}
 
+      {needsExpansion && (
+        <button
+          onClick={() => void handleExpandWindow()}
+          disabled={expandingWindow}
+          className={cn(
+            "w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg text-xs font-medium transition-colors",
+            expandingWindow
+              ? "bg-indigo-500/30 text-indigo-300 cursor-wait"
+              : "bg-indigo-600 text-white hover:bg-indigo-500",
+          )}
+        >
+          <Expand className="w-4 h-4" />
+          {expandingWindow
+            ? "Expandindo janela..."
+            : "Expandir janela para assinar documento"}
+        </button>
+      )}
+
       {pdfBytes && (
         <div className="space-y-3">
           <div className="bg-surface border border-edge rounded-lg p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-fg-4">Pagina para assinatura visual</p>
               <div className="flex items-center gap-1">
+                <button
+                  onClick={() =>
+                    setZoomLevel((prev) => Math.max(0.25, prev - 0.25))
+                  }
+                  disabled={zoomLevel <= 0.25}
+                  className="p-1 rounded text-fg-5 hover:text-fg-3 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Reduzir zoom"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-fg-3 min-w-12 text-center tabular-nums">
+                  {Math.round(zoomLevel * 100)}%
+                </span>
+                <button
+                  onClick={() =>
+                    setZoomLevel((prev) => Math.min(4.0, prev + 0.25))
+                  }
+                  disabled={zoomLevel >= 4.0}
+                  className="p-1 rounded text-fg-5 hover:text-fg-3 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Aumentar zoom"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+
+                <span className="w-px h-4 bg-edge mx-0.5" />
+
                 <button
                   onClick={() =>
                     setCurrentPage((prev) => Math.max(1, prev - 1))
@@ -811,11 +976,15 @@ export function PdfSignTool() {
 
             <div
               ref={viewerRef}
-              className="min-h-[320px] rounded-lg border border-edge bg-base flex items-center justify-center overflow-auto p-2"
+              className="h-[55vh] rounded-lg border border-edge bg-base flex items-center justify-center overflow-auto p-2"
             >
               <div
                 ref={pageLayerRef}
-                className="relative inline-block select-none"
+                onMouseDown={handlePageMouseDown}
+                className={cn(
+                  "relative inline-block select-none",
+                  !placement && "cursor-crosshair",
+                )}
               >
                 <Document
                   file={pdfDocumentFile || undefined}
@@ -835,12 +1004,24 @@ export function PdfSignTool() {
                 >
                   <Page
                     pageNumber={currentPage}
-                    width={pageWidth}
+                    width={displayPageWidth}
                     renderTextLayer={false}
                     renderAnnotationLayer={false}
                     onRenderSuccess={updatePageSize}
                   />
                 </Document>
+
+                {drawRect && isDrawing && (
+                  <div
+                    className="absolute border-2 border-dashed border-indigo-400 bg-indigo-400/10 pointer-events-none"
+                    style={{
+                      left: drawRect.x,
+                      top: drawRect.y,
+                      width: drawRect.width,
+                      height: drawRect.height,
+                    }}
+                  />
+                )}
 
                 {placement && placement.page === currentPage && (
                   <div
@@ -895,23 +1076,12 @@ export function PdfSignTool() {
                     W: {Math.round(placement.width)}
                   </span>
                 ) : (
-                  <span>Posicione a assinatura para continuar.</span>
+                  <span>
+                    Clique e arraste sobre a pagina para demarcar a area de
+                    assinatura.
+                  </span>
                 )}
               </div>
-
-              <button
-                onClick={placeSignatureInCurrentPage}
-                disabled={!pageSize}
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors",
-                  pageSize
-                    ? "bg-field text-fg-3 hover:bg-edge"
-                    : "bg-field text-fg-6 cursor-not-allowed",
-                )}
-              >
-                <Move className="w-3.5 h-3.5" />
-                Usar pagina atual
-              </button>
             </div>
           </div>
 
