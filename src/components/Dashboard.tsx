@@ -228,7 +228,7 @@ export function Dashboard({ onNavigate, isEditMode, viewMode }: DashboardProps) 
     {
       id: "domain-recovery",
       title: "Recuperar Domínio",
-      description: "Fechar sessão ou módulos do Domínio",
+      description: "Fechar módulos ou encerrar sessão",
       icon: ServerCog,
       view: "domain-recovery",
     },

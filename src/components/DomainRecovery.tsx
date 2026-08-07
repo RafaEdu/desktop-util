@@ -3,41 +3,72 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   CircleCheck,
   CircleX,
-  ExternalLink,
   LoaderCircle,
   Power,
   ServerCog,
   TriangleAlert,
 } from "lucide-react";
 
-type LaunchState =
+type Action = "close" | "logoff";
+
+type RemoteActionResult = {
+  success: boolean;
+  code: string;
+  message: string;
+  affectedProcesses: number | null;
+  sessionId: number | null;
+};
+
+type ActionState =
   | { kind: "idle" }
-  | { kind: "loading"; action: "close" | "logoff" }
+  | { kind: "loading"; action: Action }
   | { kind: "success"; message: string }
   | { kind: "error"; message: string };
+
+const actionContent: Record<
+  Action,
+  {
+    title: string;
+    warning: string;
+    command: "close_dominio" | "logoff_remote_session";
+  }
+> = {
+  close: {
+    title: "Fechar todos os módulos do Domínio?",
+    warning:
+      "Todas as janelas do Domínio abertas por você no SRV-IBM serão fechadas à força. Informações não salvas poderão ser perdidas.",
+    command: "close_dominio",
+  },
+  logoff: {
+    title: "Encerrar sua sessão no SRV-IBM?",
+    warning:
+      "Domínio, Excel, Word e todos os outros aplicativos da sua sessão serão fechados. Informações não salvas poderão ser perdidas.",
+    command: "logoff_remote_session",
+  },
+};
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
-  return "Não foi possível iniciar a ferramenta. Contate o suporte.";
+  return "Não foi possível executar a ação. Contate o suporte.";
 }
 
 export function DomainRecovery() {
-  const [state, setState] = useState<LaunchState>({ kind: "idle" });
+  const [state, setState] = useState<ActionState>({ kind: "idle" });
+  const [pendingAction, setPendingAction] = useState<Action | null>(null);
 
-  const launch = async (
-    action: "close" | "logoff",
-    command: "launch_close_dominio_remoteapp" | "launch_logoff_remoteapp",
-  ) => {
+  const execute = async (action: Action) => {
+    const content = actionContent[action];
+    setPendingAction(null);
     setState({ kind: "loading", action });
 
     try {
-      await invoke(command);
-      setState({
-        kind: "success",
-        message:
-          "RemoteApp iniciado. Aguarde a janela do servidor e confirme a ação escolhida.",
-      });
+      const result = await invoke<RemoteActionResult>(content.command);
+      setState(
+        result.success
+          ? { kind: "success", message: result.message }
+          : { kind: "error", message: result.message },
+      );
     } catch (error) {
       setState({ kind: "error", message: errorMessage(error) });
     }
@@ -74,21 +105,23 @@ export function DomainRecovery() {
               </h3>
             </div>
             <p className="flex-1 text-sm leading-relaxed text-fg-4">
-              Fecha somente todas as janelas do Domínio abertas na sua sessão.
-              Word, Excel e outros aplicativos permanecem abertos.
+              Fecha somente o Domínio do seu usuário no SRV-IBM. Word, Excel e
+              os demais aplicativos permanecem abertos.
             </p>
             <button
               type="button"
               disabled={isLoading}
-              onClick={() => launch("close", "launch_close_dominio_remoteapp")}
+              onClick={() => setPendingAction("close")}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {state.kind === "loading" && state.action === "close" ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
               ) : (
-                <ExternalLink className="h-4 w-4" />
+                <ServerCog className="h-4 w-4" />
               )}
-              Fechar módulos do Domínio
+              {state.kind === "loading" && state.action === "close"
+                ? "Encerrando..."
+                : "Fechar módulos do Domínio"}
             </button>
           </section>
 
@@ -106,7 +139,7 @@ export function DomainRecovery() {
             <button
               type="button"
               disabled={isLoading}
-              onClick={() => launch("logoff", "launch_logoff_remoteapp")}
+              onClick={() => setPendingAction("logoff")}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {state.kind === "loading" && state.action === "logoff" ? (
@@ -114,7 +147,9 @@ export function DomainRecovery() {
               ) : (
                 <Power className="h-4 w-4" />
               )}
-              Encerrar sessão no servidor
+              {state.kind === "loading" && state.action === "logoff"
+                ? "Encerrando sessão..."
+                : "Encerrar sessão no servidor"}
             </button>
           </section>
         </div>
@@ -127,8 +162,8 @@ export function DomainRecovery() {
                 Atenção antes de continuar
               </p>
               <p className="mt-1 text-sm leading-relaxed text-fg-4">
-                As duas ações podem causar perda de informações não salvas. O
-                servidor exibirá uma confirmação final antes de executar.
+                As ações podem causar perda de informações não salvas. Fechar o
+                Domínio pode levar cerca de um minuto; aguarde a mensagem final.
               </p>
             </div>
           </div>
@@ -148,6 +183,51 @@ export function DomainRecovery() {
           </div>
         )}
       </div>
+
+      {pendingAction && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="domain-recovery-confirm-title"
+        >
+          <div className="w-full max-w-md rounded-xl border border-edge bg-surface p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="mt-0.5 h-6 w-6 flex-shrink-0 text-amber-500" />
+              <div>
+                <h3
+                  id="domain-recovery-confirm-title"
+                  className="text-base font-semibold text-fg-2"
+                >
+                  {actionContent[pendingAction].title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-fg-4">
+                  {actionContent[pendingAction].warning}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setPendingAction(null)}
+                className="rounded-lg border border-edge px-4 py-2 text-sm font-medium text-fg-3 hover:bg-surface-2"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => execute(pendingAction)}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${
+                  pendingAction === "logoff" ? "bg-red-600" : "bg-accent"
+                }`}
+              >
+                Sim, executar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
