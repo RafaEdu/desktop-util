@@ -16,6 +16,7 @@ import {
   ChevronDown,
   PackageOpen,
   PenLine,
+  ServerCog,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
@@ -33,7 +34,8 @@ type View =
   | "pdf-sign"
   | "snippets"
   | "clipboard"
-  | "compressor";
+  | "compressor"
+  | "domain-recovery";
 
 interface DashboardCard {
   id: string;
@@ -222,6 +224,13 @@ export function Dashboard({ onNavigate, isEditMode, viewMode }: DashboardProps) 
       description: "Criar arquivos compactados",
       icon: PackageOpen,
       view: "compressor",
+    },
+    {
+      id: "domain-recovery",
+      title: "Recuperar Domínio",
+      description: "Fechar sessão ou módulos do Domínio",
+      icon: ServerCog,
+      view: "domain-recovery",
     },
   ];
 

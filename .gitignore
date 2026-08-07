@@ -23,7 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
-danfe.pdf
+VALIDACAO-DA-ENTREGA.md
+CHANGELOG-5.1.0.md
+/docs/IMPLANTACAO-RECUPERAR-DOMINIO.md
+/docs/TESTES-RECUPERAR-DOMINIO.md
 
 # Agent files
 .agents

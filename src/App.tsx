@@ -19,6 +19,7 @@ import {
   ClipboardList,
   PackageOpen,
   Timer as TimerIcon,
+  ServerCog,
 } from "lucide-react";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
@@ -35,6 +36,7 @@ import { Timer } from "./components/Timer";
 import { SnippetManager } from "./components/SnippetManager";
 import { ClipboardHistory } from "./components/ClipboardHistory";
 import { ZipCreator } from "./components/ZipCreator";
+import { DomainRecovery } from "./components/DomainRecovery";
 import { useTheme } from "./lib/theme";
 import { cn } from "./lib/cn";
 
@@ -50,7 +52,8 @@ type View =
   | "pdf-sign"
   | "snippets"
   | "clipboard"
-  | "compressor";
+  | "compressor"
+  | "domain-recovery";
 
 type ViewMode = "compact" | "window";
 
@@ -67,6 +70,7 @@ const VIEW_TITLES: Record<View, string> = {
   snippets: "Textos Prontos",
   clipboard: "Histórico (Win+V)",
   compressor: "Criar Arquivo Compactado",
+  "domain-recovery": "Recuperar Domínio",
 };
 
 const SIDEBAR_ITEMS: { view: View; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -81,6 +85,7 @@ const SIDEBAR_ITEMS: { view: View; label: string; icon: React.ComponentType<{ cl
   { view: "pdf", label: "Ferramentas de PDF", icon: FileStack },
   { view: "pdf-sign", label: "Assinar PDF", icon: PenLine },
   { view: "compressor", label: "Criar ZIP", icon: PackageOpen },
+  { view: "domain-recovery", label: "Recuperar Domínio", icon: ServerCog },
 ];
 
 function App() {
@@ -236,6 +241,8 @@ function App() {
         return <ClipboardHistory />;
       case "compressor":
         return <ZipCreator />;
+      case "domain-recovery":
+        return <DomainRecovery />;
       default:
         return null;
     }

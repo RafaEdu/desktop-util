@@ -1,4 +1,5 @@
 mod pdf_utils;
+mod remote_session;
 mod zip_utils;
 
 use std::sync::Mutex;
@@ -665,6 +666,8 @@ pub fn run() {
             delete_certificates,
             start_screen_capture,
             open_external_link,
+            remote_session::launch_close_dominio_remoteapp,
+            remote_session::launch_logoff_remoteapp,
             pdf_utils::merge_pdfs,
             pdf_utils::split_pdf,
             pdf_utils::get_pdf_info,

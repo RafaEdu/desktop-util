@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versão-5.0.0-6d28d9" alt="Versão">
+  <img src="https://img.shields.io/badge/versão-5.1.0-6d28d9" alt="Versão">
   <img src="https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri&logoColor=white" alt="Tauri">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React">
   <img src="https://img.shields.io/badge/Rust-desktop-000000?logo=rust&logoColor=white" alt="Rust">
@@ -265,6 +265,23 @@ Disponível no Windows.
 
 ---
 
+### Recuperar Domínio
+
+Ferramenta interna para recuperar o acesso ao Domínio Sistemas no SRV-IBM sem depender da intervenção manual do administrador.
+
+Oferece duas ações:
+
+* **Fechar todos os módulos do Domínio:** encerra somente os processos autorizados do Domínio na sessão RDS atual;
+* **Encerrar minha sessão:** faz logoff completo somente da sessão RDS atual do colaborador.
+
+A implementação utiliza RemoteApps assinados e um utilitário instalado no SRV-IBM. Não utiliza senha administrativa nas estações e não permite que o usuário informe outro usuário ou número de sessão.
+
+> **Atenção:** as duas ações podem causar perda de informações não salvas. O utilitário exige confirmação antes de executar.
+
+O procedimento completo está em [`docs/IMPLANTACAO-RECUPERAR-DOMINIO.md`](docs/IMPLANTACAO-RECUPERAR-DOMINIO.md).
+
+---
+
 ### Ferramentas de PDF
 
 Conjunto de utilidades para manipulação de documentos PDF.
@@ -478,6 +495,9 @@ O projeto é dividido em duas camadas principais:
 
 ```text
 desktop-util/
+├── deployment/              # Script de compilação do instalador
+├── docs/                    # Implantação e testes operacionais
+├── session-helper/          # Utilitário RemoteApp do SRV-IBM
 ├── public/                  # Arquivos públicos
 ├── src/                     # Interface React
 │   ├── components/          # Ferramentas e componentes
@@ -488,6 +508,7 @@ desktop-util/
 │   ├── src/
 │   │   ├── lib.rs           # Comandos, bandeja e integrações
 │   │   ├── pdf_utils.rs     # Manipulação e assinatura de PDFs
+│   │   ├── remote_session.rs # Abertura segura dos RemoteApps
 │   │   └── zip_utils.rs     # Criação de arquivos ZIP
 │   ├── capabilities/        # Permissões do Tauri
 │   ├── icons/               # Ícones dos instaladores
@@ -541,10 +562,10 @@ Entre na pasta:
 cd desktop-util
 ```
 
-Instale as dependências:
+Instale as dependências bloqueadas pelo arquivo de lock:
 
 ```bash
-npm install
+npm ci
 ```
 
 ---
