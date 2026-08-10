@@ -25,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi"],
     "publisher": "AD CONTEC Contabilidade LTDA",
     "resources": {
       "../remote-session-scripts/Fechar-Dominio.ps1": "remote-session-scripts/Fechar-Dominio.ps1",

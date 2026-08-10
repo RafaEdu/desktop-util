@@ -4,7 +4,7 @@ use serde::Deserialize;
 #[cfg(windows)]
 use std::{
     os::windows::process::CommandExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
 };
 
@@ -127,9 +127,9 @@ fn resolve_script_path(app: &tauri::AppHandle, script_name: &str) -> Result<Path
 
     #[cfg(debug_assertions)]
     {
-        let development_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        let development_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+            .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")))
             .join("remote-session-scripts")
             .join(script_name);
         if development_path.is_file() {
