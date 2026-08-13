@@ -73,7 +73,11 @@ const VIEW_TITLES: Record<View, string> = {
   "domain-recovery": "Recuperar Domínio",
 };
 
-const SIDEBAR_ITEMS: { view: View; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const SIDEBAR_ITEMS: {
+  view: View;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { view: "tasks", label: "Tarefas", icon: ListTodo },
   { view: "snippets", label: "Textos Prontos", icon: MessageSquareText },
@@ -99,6 +103,12 @@ function App() {
   });
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const { theme, toggleTheme } = useTheme();
+
+  // SEC-002: remove definitivamente o histórico legado em texto claro.
+  // A nova implementação não usa localStorage para conteúdo do clipboard.
+  useEffect(() => {
+    localStorage.removeItem("desktop-util-clipboard-history");
+  }, []);
 
   useEffect(() => {
     if (activeView !== "dashboard") {
@@ -220,7 +230,13 @@ function App() {
   const renderContent = () => {
     switch (activeView) {
       case "dashboard":
-        return <Dashboard onNavigate={setActiveView} isEditMode={layoutEditMode} viewMode={viewMode} />;
+        return (
+          <Dashboard
+            onNavigate={setActiveView}
+            isEditMode={layoutEditMode}
+            viewMode={viewMode}
+          />
+        );
       case "tasks":
         return <Tasks />;
       case "timer":
@@ -294,7 +310,9 @@ function App() {
                   }
                 >
                   <GripVertical
-                    className={layoutEditMode ? "w-4 h-4 text-accent" : "w-4 h-4"}
+                    className={
+                      layoutEditMode ? "w-4 h-4 text-accent" : "w-4 h-4"
+                    }
                   />
                 </button>
               )}
@@ -424,14 +442,14 @@ function App() {
 
           {/* Sidebar footer placeholder for future tools */}
           <div className="px-3 py-2 border-t border-edge">
-            <p className="text-xs text-fg-6 italic">Mais ferramentas em breve...</p>
+            <p className="text-xs text-fg-6 italic">
+              Mais ferramentas em breve...
+            </p>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto">
-          {renderContent()}
-        </main>
+        <main className="flex-1 overflow-y-auto">{renderContent()}</main>
       </div>
 
       {/* Footer */}

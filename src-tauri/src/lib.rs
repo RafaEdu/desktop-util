@@ -1,3 +1,4 @@
+mod clipboard_history;
 mod pdf_utils;
 mod remote_session;
 mod zip_utils;
@@ -780,6 +781,10 @@ pub fn run() {
             delete_certificates,
             start_screen_capture,
             open_external_link,
+            clipboard_history::clipboard_get_snapshot,
+            clipboard_history::clipboard_set_settings,
+            clipboard_history::clipboard_clear_history,
+            clipboard_history::clipboard_copy_item,
             remote_session::close_dominio,
             remote_session::logoff_remote_session,
             pdf_utils::merge_pdfs,
@@ -850,12 +855,22 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         // ── System Tray Setup ────────────────────────────────────
         .setup(|app| {
+            // ── SEC-002: serviço global do histórico da área de transferência ──
+            let clipboard_service = clipboard_history::ClipboardService::new(app.handle())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+            app.manage(clipboard_service);
+
+            clipboard_history::start_monitor(app.handle().clone());
+
             // ... (setup existente)
             // Menu items
             let restore = MenuItemBuilder::with_id("restore", "Restaurar janela")
                 .build(app)?;
+
             let show_hide = MenuItemBuilder::with_id("toggle", "Mostrar/Ocultar")
                 .build(app)?;
+
             let quit = MenuItemBuilder::with_id("quit", "Sair").build(app)?;
 
             let menu = MenuBuilder::new(app)
@@ -949,7 +964,6 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .plugin(tauri_plugin_clipboard_manager::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
