@@ -10,6 +10,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_clipboard_manager;
+use tauri_plugin_opener::OpenerExt;
 
 // ── Managed State ───────────────────────────────────────────────
 struct AppState {
@@ -350,10 +351,38 @@ fn start_screen_capture() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_external_link(url: String, mode: Option<String>) -> Result<(), String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("URL inválida: use http:// ou https://".into());
+fn validate_external_http_url(raw_url: &str) -> Result<String, String> {
+    let trimmed = raw_url.trim();
+
+    if trimmed.is_empty() {
+        return Err("URL inválida: endereço vazio".into());
     }
+
+    if trimmed.chars().any(char::is_control) {
+        return Err("URL inválida: contém caracteres de controle".into());
+    }
+
+    let parsed =
+        reqwest::Url::parse(trimmed).map_err(|_| "URL inválida: formato incorreto".to_string())?;
+
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("URL inválida: apenas http:// e https:// são permitidos".into());
+    }
+
+    if !parsed.has_host() {
+        return Err("URL inválida: host ausente".into());
+    }
+
+    Ok(parsed.to_string())
+}
+
+#[tauri::command]
+fn open_external_link(
+    app: tauri::AppHandle,
+    url: String,
+    mode: Option<String>,
+) -> Result<(), String> {
+    let safe_url = validate_external_http_url(&url)?;
 
     let selected_mode = mode
         .as_deref()
@@ -362,22 +391,21 @@ fn open_external_link(url: String, mode: Option<String>) -> Result<(), String> {
         .to_ascii_lowercase();
 
     match selected_mode.as_str() {
-        "incognito" | "private" => open_link_incognito_impl(&url),
-        _ => open_link_normal_impl(&url),
+        "normal" => open_link_normal_impl(&app, &safe_url),
+        "incognito" | "private" => open_link_incognito_impl(&safe_url),
+        _ => Err(format!("Modo de abertura inválido: {}", selected_mode)),
     }
 }
 
 #[cfg(windows)]
-fn open_link_normal_impl(url: &str) -> Result<(), String> {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .spawn()
-        .map_err(|e| format!("Falha ao abrir link: {}", e))?;
-    Ok(())
+fn open_link_normal_impl(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("Falha ao abrir link: {}", e))
 }
 
 #[cfg(not(windows))]
-fn open_link_normal_impl(url: &str) -> Result<(), String> {
+fn open_link_normal_impl(_app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -398,6 +426,92 @@ fn open_link_normal_impl(url: &str) -> Result<(), String> {
 
     #[allow(unreachable_code)]
     Err("Abertura de links não suportada neste sistema".into())
+}
+
+#[cfg(test)]
+mod external_link_security_tests {
+    use super::validate_external_http_url;
+
+    #[test]
+    fn accepts_valid_http_and_https_urls() {
+        let valid_urls = [
+            "https://example.com",
+            "http://example.com",
+            "https://example.com:8443/login",
+            "http://localhost:1420",
+            "https://127.0.0.1/app",
+            "https://example.com/?a=1&b=2",
+            "https://example.com/#section",
+            "https://example.com/?q=a%26b",
+            "https://example.com/?q=a%3Eb",
+        ];
+
+        for url in valid_urls {
+            assert!(
+                validate_external_http_url(url).is_ok(),
+                "URL deveria ser aceita: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_http_schemes_and_malformed_urls() {
+        let invalid_urls = [
+            "",
+            "   ",
+            "https://",
+            "ftp://example.com",
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "mailto:usuario@example.com",
+            "://example.com",
+        ];
+
+        for url in invalid_urls {
+            assert!(
+                validate_external_http_url(url).is_err(),
+                "URL deveria ser rejeitada: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_control_characters() {
+        let invalid_urls = [
+            "https://example.com/\rtest",
+            "https://example.com/\ntest",
+            "https://example.com/\ttest",
+            "https://example.com/\u{0000}test",
+            "https://example.com/\u{007f}test",
+        ];
+
+        for url in invalid_urls {
+            assert!(
+                validate_external_http_url(url).is_err(),
+                "URL com caractere de controle deveria ser rejeitada: {url:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_shell_metacharacters_as_url_data() {
+        // Esses caracteres não são filtrados por blacklist.
+        // A proteção vem da ausência de cmd.exe/shell no caminho normal.
+        let urls = [
+            "https://example.com/?a=1&b=2",
+            "https://example.com/?q=a%7Cb",
+            "https://example.com/?q=a%3Eb",
+            "https://example.com/?q=%22teste%22",
+        ];
+
+        for url in urls {
+            assert!(
+                validate_external_http_url(url).is_ok(),
+                "URL legítima deveria continuar válida: {url}"
+            );
+        }
+    }
 }
 
 #[cfg(windows)]

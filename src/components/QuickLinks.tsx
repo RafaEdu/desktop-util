@@ -13,6 +13,45 @@ import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 import { getDb, type QuickLink } from "../lib/db";
 
+function normalizeQuickLinkUrl(value: string): string | null {
+  let candidate = value.trim();
+
+  if (!candidate) {
+    return null;
+  }
+
+  // URLs com caracteres de controle não devem ser persistidas nem abertas.
+  if (/[\u0000-\u001F\u007F]/.test(candidate)) {
+    return null;
+  }
+
+  // Se o usuário informou explicitamente um protocolo, somente HTTP/HTTPS é aceito.
+  // Isso bloqueia file:, javascript:, data:, ftp:, custom-scheme:, etc.
+  if (
+    /^[a-z][a-z0-9+.-]*:/i.test(candidate) &&
+    !/^https?:\/\//i.test(candidate)
+  ) {
+    return null;
+  }
+
+  // Preserva o comportamento anterior: "exemplo.com" vira "https://exemplo.com".
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function QuickLinks() {
   const [links, setLinks] = useState<QuickLink[]>([]);
   const [title, setTitle] = useState("");
@@ -42,11 +81,16 @@ export function QuickLinks() {
 
   const addLink = async () => {
     const t = title.trim();
-    let u = url.trim();
-    if (!t || !u) return;
-    if (!u.startsWith("http://") && !u.startsWith("https://")) {
-      u = "https://" + u;
+    const u = normalizeQuickLinkUrl(url);
+
+    if (!t || !u) {
+      await message("Informe um título e uma URL HTTP/HTTPS válida.", {
+        title: "Dados inválidos",
+        kind: "error",
+      });
+      return;
     }
+
     try {
       const db = await getDb();
       await db.execute("INSERT INTO quick_links (title, url) VALUES (?, ?)", [
@@ -75,12 +119,18 @@ export function QuickLinks() {
 
   const saveEdit = async () => {
     if (editingId === null) return;
+
     const t = editTitle.trim();
-    let u = editUrl.trim();
-    if (!t || !u) return;
-    if (!u.startsWith("http://") && !u.startsWith("https://")) {
-      u = "https://" + u;
+    const u = normalizeQuickLinkUrl(editUrl);
+
+    if (!t || !u) {
+      await message("Informe um título e uma URL HTTP/HTTPS válida.", {
+        title: "Dados inválidos",
+        kind: "error",
+      });
+      return;
     }
+
     try {
       const db = await getDb();
       await db.execute(
@@ -105,17 +155,41 @@ export function QuickLinks() {
   };
 
   const handleOpenLink = async (linkUrl: string) => {
+    const safeUrl = normalizeQuickLinkUrl(linkUrl);
+
+    if (!safeUrl) {
+      await message("Este link possui uma URL inválida ou não permitida.", {
+        title: "URL inválida",
+        kind: "error",
+      });
+      return;
+    }
+
     try {
       await invoke("open_external_link", {
-        url: linkUrl,
+        url: safeUrl,
         mode: "normal",
       });
     } catch (err) {
       console.error("Failed to open link:", err);
+      await message("Não foi possível abrir o link.", {
+        title: "Falha ao abrir link",
+        kind: "error",
+      });
     }
   };
 
   const handleOpenAnonymousLink = async (linkUrl: string) => {
+    const safeUrl = normalizeQuickLinkUrl(linkUrl);
+
+    if (!safeUrl) {
+      await message("Este link possui uma URL inválida ou não permitida.", {
+        title: "URL inválida",
+        kind: "error",
+      });
+      return;
+    }
+
     const chromeApi = (
       globalThis as {
         chrome?: {
@@ -129,7 +203,7 @@ export function QuickLinks() {
     if (chromeApi?.windows?.create) {
       try {
         chromeApi.windows.create({
-          url: linkUrl,
+          url: safeUrl,
           incognito: true,
         });
         return;
@@ -140,7 +214,7 @@ export function QuickLinks() {
 
     try {
       await invoke("open_external_link", {
-        url: linkUrl,
+        url: safeUrl,
         mode: "incognito",
       });
     } catch (err) {
