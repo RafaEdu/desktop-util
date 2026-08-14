@@ -1,12 +1,20 @@
-﻿[CmdletBinding()]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$')]
+    [string]$Server,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$')]
+    [string]$ExpectedDomain,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9._-]+\.exe$')]
+    [string]$ExecutableName
+)
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-$Server = "SRV-IBM"
-$ExpectedDomain = "ADCONTEC"
-$ExecutableName = "contabil.exe"
 $TimeoutMilliseconds = 90000
 
 function Complete-Action {
@@ -34,7 +42,7 @@ function Complete-Action {
 function Get-CurrentUserSessionId {
     $queryOutput = @(& "$env:SystemRoot\System32\quser.exe" $env:USERNAME "/server:$Server" 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        Complete-Action $false "session-query-failed" "Não foi possível localizar sua sessão no SRV-IBM. Verifique a conexão de rede ou contate o suporte."
+        Complete-Action $false "session-query-failed" "Não foi possível localizar sua sessão no servidor remoto. Verifique a conexão de rede ou contate o suporte."
     }
 
     $sessionIds = @()
@@ -56,7 +64,7 @@ function Get-CurrentUserSessionId {
 
     $sessionIds = @($sessionIds | Sort-Object -Unique)
     if ($sessionIds.Count -eq 0) {
-        Complete-Action $false "session-not-found" "Nenhuma sessão sua foi encontrada no SRV-IBM. Abra o Domínio e tente novamente."
+        Complete-Action $false "session-not-found" "Nenhuma sessão sua foi encontrada no servidor remoto. Abra o Domínio e tente novamente."
     }
     if ($sessionIds.Count -gt 1) {
         Complete-Action $false "multiple-sessions" "Foram encontradas várias sessões para seu usuário. Por segurança, nenhuma ação foi executada; contate o suporte."
@@ -71,7 +79,7 @@ function Get-DominioProcesses {
     $identity = "$env:USERDOMAIN\$env:USERNAME"
     $taskOutput = @(& "$env:SystemRoot\System32\tasklist.exe" /s $Server /fi "USERNAME eq $identity" /fi "IMAGENAME eq $ExecutableName" /fo CSV /nh 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        Complete-Action $false "process-query-failed" "Não foi possível consultar os processos do Domínio no SRV-IBM. Contate o suporte." $null $SessionId
+        Complete-Action $false "process-query-failed" "Não foi possível consultar os processos do Domínio no servidor remoto. Contate o suporte." $null $SessionId
     }
 
     $processes = @()
@@ -121,7 +129,7 @@ function Invoke-TaskKill {
 
 try {
     if ($env:USERDOMAIN -ine $ExpectedDomain -or [string]::IsNullOrWhiteSpace($env:USERNAME)) {
-        Complete-Action $false "invalid-identity" "Esta ação está disponível somente para usuários do domínio ADCONTEC."
+        Complete-Action $false "invalid-identity" "Esta ação está disponível somente para usuários do domínio corporativo."
     }
 
     $sessionId = Get-CurrentUserSessionId
@@ -137,7 +145,6 @@ try {
     if ($remaining.Count -eq 0) {
         Complete-Action $true "closed" "Os módulos do Domínio foram encerrados. Chrome e os demais aplicativos permaneceram abertos." $before.Count $sessionId
     }
-
     if ($execution.TimedOut) {
         Complete-Action $false "close-timeout" "O Domínio não terminou de fechar em 90 segundos. Aguarde um pouco; se continuar travado, use a opção Encerrar minha sessão." ($before.Count - $remaining.Count) $sessionId
     }

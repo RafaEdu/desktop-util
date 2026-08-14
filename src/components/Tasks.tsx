@@ -11,6 +11,7 @@ import {
 import dayjs from "dayjs";
 import { cn } from "../lib/cn";
 import { getDb, type Todo } from "../lib/db";
+import { logSafeError } from "../lib/safeLogger";
 
 type SubTab = "active" | "history";
 
@@ -38,8 +39,8 @@ export function Tasks() {
       const rows = await db.select<Todo[]>(query);
       console.log("[loadTodos] rows:", rows);
       setTodos(rows);
-    } catch (err) {
-      console.error("[loadTodos] FAILED:", err);
+    } catch {
+      logSafeError("TASKS_LOAD_FAILED");
     } finally {
       setLoading(false);
     }
@@ -67,16 +68,16 @@ export function Tasks() {
       const nextOrder = (maxRow[0]?.max_order ?? 0) + 1;
       console.log("[addTodo] nextOrder:", nextOrder);
 
-      const result = await db.execute(
-        "INSERT INTO todos (title, sort_order) VALUES (?, ?)",
-        [title, nextOrder],
-      );
-      console.log("[addTodo] insert result:", result);
+      await db.execute("INSERT INTO todos (title, sort_order) VALUES (?, ?)", [
+        title,
+        nextOrder,
+      ]);
+      console.log("[addTodo] insert result:");
 
       setNewTitle("");
       await loadTodos();
-    } catch (err) {
-      console.error("[addTodo] FAILED:", err);
+    } catch {
+      logSafeError("TASKS_ADD_FAILED");
     }
   };
 
@@ -100,8 +101,8 @@ export function Tasks() {
         );
       }
       await loadTodos();
-    } catch (err) {
-      console.error("Failed to toggle todo:", err);
+    } catch {
+      logSafeError("TASKS_TOGGLE_FAILED");
     }
   };
 
@@ -110,8 +111,8 @@ export function Tasks() {
       const db = await getDb();
       await db.execute("DELETE FROM todos WHERE id = ?", [id]);
       await loadTodos();
-    } catch (err) {
-      console.error("Failed to delete todo:", err);
+    } catch {
+      logSafeError("TASKS_DELETE_FAILED");
     }
   };
 
@@ -134,8 +135,8 @@ export function Tasks() {
         b.id,
       ]);
       await loadTodos();
-    } catch (err) {
-      console.error("Failed to move todo:", err);
+    } catch {
+      logSafeError("TASKS_MOVE_FAILED");
     }
   };
 

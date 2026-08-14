@@ -20,6 +20,12 @@ const MAX_HISTORY_ITEMS: usize = 50;
 const DEFAULT_RETENTION_SECONDS: u64 = 8 * 60 * 60;
 const ALLOWED_RETENTION_SECONDS: [u64; 4] = [60 * 60, 8 * 60 * 60, 24 * 60 * 60, 7 * 24 * 60 * 60];
 
+#[inline]
+fn debug_safe_error(code: &str) {
+    #[cfg(debug_assertions)]
+    eprintln!("[{code}]");
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ClipboardMode {
@@ -132,9 +138,9 @@ impl ClipboardService {
             history_tmp_path,
         };
 
-        if let Err(err) = service.persist_if_needed() {
-            eprintln!("Falha ao normalizar histórico protegido na inicialização: {err}");
-        }
+        if service.persist_if_needed().is_err() {
+            debug_safe_error("CLIPBOARD_STARTUP_PERSIST_FAILED");
+        }   
         Ok(service)
     }
 
@@ -158,8 +164,8 @@ impl ClipboardService {
         };
 
         if changed && persistent {
-            if let Err(err) = self.persist_if_needed() {
-                eprintln!("Falha ao atualizar histórico protegido após expiração: {err}");
+            if self.persist_if_needed().is_err() {
+                debug_safe_error("CLIPBOARD_EXPIRY_PERSIST_FAILED");
             }
         }
 
@@ -231,8 +237,8 @@ impl ClipboardService {
         };
 
         if persistent {
-            if let Err(err) = self.persist_if_needed() {
-                eprintln!("Falha ao persistir histórico protegido do clipboard: {err}");
+            if self.persist_if_needed().is_err() {
+                debug_safe_error("CLIPBOARD_PERSIST_FAILED");
             }
         }
 
@@ -344,8 +350,8 @@ impl ClipboardService {
         };
 
         if changed {
-            if let Err(err) = self.persist_if_needed() {
-                eprintln!("Falha ao persistir limpeza automática do clipboard: {err}");
+            if let Err(_err) = self.persist_if_needed() {
+                debug_safe_error("CLIPBOARD_PURGE_PERSIST_FAILED");
             }
         }
 

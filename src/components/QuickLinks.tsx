@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import { cn } from "../lib/cn";
 import { getDb, type QuickLink } from "../lib/db";
+import { logSafeError } from "../lib/safeLogger";
 
 function normalizeQuickLinkUrl(value: string): string | null {
   let candidate = value.trim();
@@ -68,8 +69,8 @@ export function QuickLinks() {
         "SELECT * FROM quick_links ORDER BY created_at DESC",
       );
       setLinks(rows);
-    } catch (err) {
-      console.error("Failed to load links:", err);
+    } catch {
+      logSafeError("QUICK_LINKS_LOAD_FAILED");
     } finally {
       setLoading(false);
     }
@@ -100,8 +101,8 @@ export function QuickLinks() {
       setTitle("");
       setUrl("");
       await loadLinks();
-    } catch (err) {
-      console.error("Failed to add link:", err);
+    } catch {
+      logSafeError("QUICK_LINKS_ADD_FAILED");
     }
   };
 
@@ -139,8 +140,8 @@ export function QuickLinks() {
       );
       cancelEdit();
       await loadLinks();
-    } catch (err) {
-      console.error("Failed to update link:", err);
+    } catch {
+      logSafeError("QUICK_LINKS_UPDATE_FAILED");
     }
   };
 
@@ -149,8 +150,8 @@ export function QuickLinks() {
       const db = await getDb();
       await db.execute("DELETE FROM quick_links WHERE id = ?", [id]);
       await loadLinks();
-    } catch (err) {
-      console.error("Failed to delete link:", err);
+    } catch {
+      logSafeError("QUICK_LINKS_DELETE_FAILED");
     }
   };
 
@@ -170,12 +171,8 @@ export function QuickLinks() {
         url: safeUrl,
         mode: "normal",
       });
-    } catch (err) {
-      console.error("Failed to open link:", err);
-      await message("Não foi possível abrir o link.", {
-        title: "Falha ao abrir link",
-        kind: "error",
-      });
+    } catch {
+      logSafeError("QUICK_LINKS_OPEN_FAILED");
     }
   };
 
@@ -207,8 +204,8 @@ export function QuickLinks() {
           incognito: true,
         });
         return;
-      } catch (err) {
-        console.error("Failed to open anonymous link via chrome API:", err);
+      } catch {
+        logSafeError("QUICK_LINKS_CHROME_INCOGNITO_FAILED");
       }
     }
 
@@ -217,8 +214,8 @@ export function QuickLinks() {
         url: safeUrl,
         mode: "incognito",
       });
-    } catch (err) {
-      console.error("Failed to open anonymous link:", err);
+    } catch {
+      logSafeError("QUICK_LINKS_INCOGNITO_FAILED");
       await message(
         "Não foi possível abrir em modo anônimo. Verifique se Edge, Chrome, Brave ou Firefox estão instalados.",
         {

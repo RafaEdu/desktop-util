@@ -32,8 +32,8 @@ O objetivo é simples:
 
 O aplicativo funciona diretamente no computador, permanece disponível na bandeja do Windows e pode ser utilizado em dois formatos:
 
-* **Modo compacto:** painel flutuante de acesso rápido;
-* **Modo janela:** interface ampliada, redimensionável e com menu lateral.
+- **Modo compacto:** painel flutuante de acesso rápido;
+- **Modo janela:** interface ampliada, redimensionável e com menu lateral.
 
 Grande parte dos dados é armazenada localmente, sem depender de uma plataforma externa para as funções principais.
 
@@ -47,12 +47,12 @@ A tela inicial centraliza todas as ferramentas do aplicativo.
 
 O Dashboard permite:
 
-* favoritar as ferramentas mais utilizadas;
-* reorganizar os cards;
-* arquivar ferramentas que não fazem parte da rotina do usuário;
-* restaurar ferramentas arquivadas;
-* alternar entre tema claro e escuro;
-* acessar rapidamente qualquer funcionalidade.
+- favoritar as ferramentas mais utilizadas;
+- reorganizar os cards;
+- arquivar ferramentas que não fazem parte da rotina do usuário;
+- restaurar ferramentas arquivadas;
+- alternar entre tema claro e escuro;
+- acessar rapidamente qualquer funcionalidade.
 
 Cada colaborador pode organizar o painel conforme a própria rotina de trabalho.
 
@@ -64,14 +64,14 @@ Gerenciador local para atividades rápidas do dia a dia.
 
 Permite:
 
-* adicionar novas tarefas;
-* visualizar tarefas em andamento;
-* marcar tarefas como concluídas;
-* consultar o histórico de conclusão;
-* restaurar tarefas concluídas;
-* reorganizar a ordem das atividades;
-* excluir tarefas;
-* visualizar a data de criação e conclusão.
+- adicionar novas tarefas;
+- visualizar tarefas em andamento;
+- marcar tarefas como concluídas;
+- consultar o histórico de conclusão;
+- restaurar tarefas concluídas;
+- reorganizar a ordem das atividades;
+- excluir tarefas;
+- visualizar a data de criação e conclusão.
 
 As tarefas são armazenadas localmente em um banco de dados SQLite.
 
@@ -85,21 +85,21 @@ Biblioteca de mensagens e respostas utilizadas com frequência.
 
 Permite:
 
-* cadastrar novos textos;
-* definir um título para cada mensagem;
-* editar textos existentes;
-* excluir mensagens;
-* copiar o conteúdo com um clique.
+- cadastrar novos textos;
+- definir um título para cada mensagem;
+- editar textos existentes;
+- excluir mensagens;
+- copiar o conteúdo com um clique.
 
 Exemplos de uso:
 
-* saudações;
-* encerramentos de atendimento;
-* solicitações de documentos;
-* orientações recorrentes;
-* mensagens para clientes;
-* respostas padronizadas;
-* avisos internos.
+- saudações;
+- encerramentos de atendimento;
+- solicitações de documentos;
+- orientações recorrentes;
+- mensagens para clientes;
+- respostas padronizadas;
+- avisos internos.
 
 Os textos ficam salvos localmente no computador.
 
@@ -111,11 +111,11 @@ Um histórico de textos copiados, semelhante ao recurso `Win + V` do Windows.
 
 A ferramenta:
 
-* monitora textos copiados;
-* mantém os últimos 50 registros;
-* exibe os itens mais recentes primeiro;
-* permite copiar novamente qualquer registro;
-* permite limpar todo o histórico.
+- monitora textos copiados;
+- mantém os últimos 50 registros;
+- exibe os itens mais recentes primeiro;
+- permite copiar novamente qualquer registro;
+- permite limpar todo o histórico.
 
 Útil para recuperar rapidamente informações copiadas anteriormente, como códigos, descrições, números de documentos e mensagens.
 
@@ -131,22 +131,22 @@ Ferramenta de controle de tempo com dois modos de funcionamento.
 
 Permite:
 
-* iniciar;
-* pausar;
-* continuar;
-* zerar;
-* registrar voltas;
-* visualizar o tempo total e o tempo de cada volta.
+- iniciar;
+- pausar;
+- continuar;
+- zerar;
+- registrar voltas;
+- visualizar o tempo total e o tempo de cada volta.
 
 #### Contagem regressiva
 
 Permite criar alertas:
 
-* por duração em minutos e segundos;
-* para um horário específico;
-* com nome personalizado;
-* com notificação silenciosa;
-* trazendo a janela do aplicativo para frente ao finalizar.
+- por duração em minutos e segundos;
+- para um horário específico;
+- com nome personalizado;
+- com notificação silenciosa;
+- trazendo a janela do aplicativo para frente ao finalizar.
 
 Caso o horário escolhido já tenha passado no dia atual, o alerta será programado para o dia seguinte.
 
@@ -160,24 +160,24 @@ Central de atalhos para sites e sistemas utilizados no escritório.
 
 Permite:
 
-* cadastrar links;
-* informar um nome para cada acesso;
-* editar links existentes;
-* excluir links;
-* abrir no navegador padrão;
-* abrir em janela privada ou anônima.
+- cadastrar links;
+- informar um nome para cada acesso;
+- editar links existentes;
+- excluir links;
+- abrir no navegador padrão;
+- abrir em janela privada ou anônima.
 
 Exemplos:
 
-* e-CAC;
-* eSocial;
-* Gov.br;
-* portais municipais;
-* sistemas estaduais;
-* plataformas internas;
-* sites de clientes;
-* serviços bancários;
-* ferramentas de consulta.
+- e-CAC;
+- eSocial;
+- Gov.br;
+- portais municipais;
+- sistemas estaduais;
+- plataformas internas;
+- sites de clientes;
+- serviços bancários;
+- ferramentas de consulta.
 
 No modo privado, o aplicativo procura um navegador compatível instalado no computador.
 
@@ -189,17 +189,17 @@ Gerenciador dos certificados disponíveis no repositório pessoal do Windows.
 
 A ferramenta permite:
 
-* listar os certificados instalados;
-* consultar o titular;
-* consultar o emissor;
-* visualizar a validade;
-* visualizar o thumbprint;
-* pesquisar por titular ou emissor;
-* identificar certificados válidos;
-* destacar certificados próximos do vencimento;
-* identificar certificados vencidos;
-* excluir um certificado individualmente;
-* excluir certificados vencidos em lote.
+- listar os certificados instalados;
+- consultar o titular;
+- consultar o emissor;
+- visualizar a validade;
+- visualizar o thumbprint;
+- pesquisar por titular ou emissor;
+- identificar certificados válidos;
+- destacar certificados próximos do vencimento;
+- identificar certificados vencidos;
+- excluir um certificado individualmente;
+- excluir certificados vencidos em lote.
 
 Classificação visual:
 
@@ -219,12 +219,12 @@ Verifica rapidamente a disponibilidade de serviços governamentais utilizados pe
 
 Serviços monitorados:
 
-* eSocial;
-* Gov.br;
-* Empregador Web;
-* Portal Nacional da NF-e;
-* e-CAC;
-* Emissor Nacional da NFS-e.
+- eSocial;
+- Gov.br;
+- Empregador Web;
+- Portal Nacional da NF-e;
+- e-CAC;
+- Emissor Nacional da NFS-e.
 
 Resultados possíveis:
 
@@ -253,13 +253,13 @@ Win + Shift + S
 
 Permite capturar rapidamente:
 
-* uma área específica;
-* uma janela;
-* a tela inteira;
-* mensagens de erro;
-* telas de sistemas;
-* comprovantes;
-* informações para suporte.
+- uma área específica;
+- uma janela;
+- a tela inteira;
+- mensagens de erro;
+- telas de sistemas;
+- comprovantes;
+- informações para suporte.
 
 Disponível no Windows.
 
@@ -267,18 +267,18 @@ Disponível no Windows.
 
 ### Recuperar Domínio
 
-Ferramenta interna para recuperar o acesso ao Domínio Sistemas no SRV-IBM sem depender da intervenção manual do administrador.
+Ferramenta interna para recuperar o acesso ao Domínio Sistemas em um servidor RDS configurado no deployment, sem depender da intervenção manual do administrador.
 
 Oferece duas ações:
 
-* **Fechar todos os módulos do Domínio:** encerra somente os processos autorizados do Domínio na sessão RDS atual;
-* **Encerrar minha sessão:** faz logoff completo somente da sessão RDS atual do colaborador.
+- **Fechar todos os módulos do Domínio:** encerra somente os processos autorizados do Domínio na sessão RDS atual;
+- **Encerrar minha sessão:** faz logoff completo somente da sessão RDS atual do colaborador.
 
-A implementação utiliza dois scripts PowerShell incorporados ao instalador. Os comandos são executados com a conta comum do colaborador e atuam remotamente no `SRV-IBM`. Não há novo RemoteApp, arquivo `.rdp`, instalação no servidor ou senha administrativa.
+A implementação utiliza dois scripts PowerShell incorporados ao executável. Os comandos são executados com a conta comum do colaborador e recebem servidor, domínio Windows esperado e executável autorizado a partir da configuração privada de deployment compilada no MSI. O repositório público não contém os valores reais de infraestrutura.
 
-> **Atenção:** as duas ações podem causar perda de informações não salvas. O aplicativo exige confirmação antes de executar. O fechamento do Domínio pode levar aproximadamente um minuto.
+> Atenção: as duas ações podem causar perda de informações não salvas. O aplicativo exige confirmação antes de executar. O fechamento do Domínio pode levar aproximadamente um minuto.
 
-O procedimento completo está em [`docs/IMPLANTACAO-RECUPERAR-DOMINIO.md`](docs/IMPLANTACAO-RECUPERAR-DOMINIO.md).
+O procedimento de build corporativo está em `deployment/README.md`.
 
 ---
 
@@ -290,12 +290,12 @@ Conjunto de utilidades para manipulação de documentos PDF.
 
 Permite:
 
-* selecionar dois ou mais arquivos;
-* adicionar arquivos por seleção ou arrastar e soltar;
-* reorganizar a ordem dos documentos;
-* remover itens da lista;
-* definir o nome do arquivo final;
-* gerar um único PDF.
+- selecionar dois ou mais arquivos;
+- adicionar arquivos por seleção ou arrastar e soltar;
+- reorganizar a ordem dos documentos;
+- remover itens da lista;
+- definir o nome do arquivo final;
+- gerar um único PDF.
 
 A ordem apresentada na lista será utilizada na montagem do documento.
 
@@ -303,16 +303,16 @@ A ordem apresentada na lista será utilizada na montagem do documento.
 
 Permite separar um documento utilizando diferentes estratégias:
 
-* uma página por arquivo;
-* páginas ímpares e pares;
-* páginas pares e ímpares;
-* divisão após páginas específicas;
-* divisão a cada quantidade definida de páginas.
+- uma página por arquivo;
+- páginas ímpares e pares;
+- páginas pares e ímpares;
+- divisão após páginas específicas;
+- divisão a cada quantidade definida de páginas.
 
 Também é possível definir:
 
-* diretório de destino;
-* prefixo dos arquivos gerados.
+- diretório de destino;
+- prefixo dos arquivos gerados.
 
 Exemplos:
 
@@ -338,9 +338,9 @@ Níveis disponíveis:
 
 Após o processamento, a ferramenta informa:
 
-* tamanho original;
-* tamanho final;
-* percentual de redução.
+- tamanho original;
+- tamanho final;
+- percentual de redução.
 
 > A compressão atual é principalmente estrutural. PDFs formados por imagens digitalizadas podem apresentar pouca redução, pois a ferramenta não reduz diretamente a resolução das imagens.
 
@@ -362,16 +362,16 @@ Fluxo de utilização:
 
 A representação visual pode incluir:
 
-* titular do certificado;
-* CNPJ identificado;
-* data e hora da assinatura.
+- titular do certificado;
+- CNPJ identificado;
+- data e hora da assinatura.
 
 Além da marca visual, o aplicativo realiza uma assinatura digital criptográfica no padrão **PAdES**, utilizando:
 
-* certificado do repositório pessoal do Windows;
-* chave privada vinculada ao certificado;
-* algoritmo de resumo SHA-256;
-* assinatura RSA PKCS#1 v1.5.
+- certificado do repositório pessoal do Windows;
+- chave privada vinculada ao certificado;
+- algoritmo de resumo SHA-256;
+- assinatura RSA PKCS#1 v1.5.
 
 O arquivo original não é sobrescrito. Um novo documento é gerado com o sufixo:
 
@@ -395,23 +395,23 @@ Ferramenta para gerar arquivos compactados.
 
 Permite:
 
-* selecionar vários arquivos;
-* adicionar arquivos por arrastar e soltar;
-* remover itens antes da compactação;
-* escolher o nome e local do arquivo final;
-* gerar um arquivo no formato `.zip`.
+- selecionar vários arquivos;
+- adicionar arquivos por arrastar e soltar;
+- remover itens antes da compactação;
+- escolher o nome e local do arquivo final;
+- gerar um arquivo no formato `.zip`.
 
 A compactação utiliza o método Deflate.
 
 Ideal para reunir:
 
-* documentos de clientes;
-* arquivos fiscais;
-* XMLs;
-* relatórios;
-* planilhas;
-* PDFs;
-* arquivos para envio por e-mail.
+- documentos de clientes;
+- arquivos fiscais;
+- XMLs;
+- relatórios;
+- planilhas;
+- PDFs;
+- arquivos para envio por e-mail.
 
 ---
 
@@ -421,16 +421,16 @@ O aplicativo possui integração com recursos nativos do sistema operacional.
 
 Entre os principais comportamentos:
 
-* inicialização automática com o sistema;
-* execução na bandeja do Windows;
-* exibição e ocultação pelo ícone da bandeja;
-* opção de restaurar a janela;
-* modo compacto posicionado próximo à bandeja;
-* fechamento da janela sem encerrar o aplicativo;
-* captura de tela nativa;
-* acesso ao repositório de certificados;
-* notificações do sistema;
-* leitura e escrita na área de transferência.
+- inicialização automática com o sistema;
+- execução na bandeja do Windows;
+- exibição e ocultação pelo ícone da bandeja;
+- opção de restaurar a janela;
+- modo compacto posicionado próximo à bandeja;
+- fechamento da janela sem encerrar o aplicativo;
+- captura de tela nativa;
+- acesso ao repositório de certificados;
+- notificações do sistema;
+- leitura e escrita na área de transferência.
 
 Para encerrar completamente o aplicativo, utilize a opção **Sair** no menu da bandeja.
 
@@ -465,27 +465,27 @@ Atualmente, não existe sincronização automática em nuvem entre computadores.
 
 ### Interface
 
-* React 19;
-* TypeScript;
-* Vite;
-* Tailwind CSS;
-* Lucide Icons;
-* Day.js;
-* React PDF;
-* PDF.js;
-* PDF-Lib.
+- React 19;
+- TypeScript;
+- Vite;
+- Tailwind CSS;
+- Lucide Icons;
+- Day.js;
+- React PDF;
+- PDF.js;
+- PDF-Lib.
 
 ### Aplicação desktop
 
-* Tauri 2;
-* Rust;
-* SQLite;
-* APIs nativas do Windows;
-* Windows Certificate Store;
-* CNG e CryptoAPI;
-* PAdES;
-* SHA-256;
-* ZIP Deflate.
+- Tauri 2;
+- Rust;
+- SQLite;
+- APIs nativas do Windows;
+- Windows Certificate Store;
+- CNG e CryptoAPI;
+- PAdES;
+- SHA-256;
+- ZIP Deflate.
 
 ---
 
@@ -495,9 +495,8 @@ O projeto é dividido em duas camadas principais:
 
 ```text
 desktop-util/
-├── deployment/              # Script de compilação do instalador
-├── docs/                    # Implantação e testes operacionais
-├── remote-session-scripts/  # Ações remotas incorporadas ao instalador
+├── deployment/              # Modelo/configuração privada de build e script do MSI
+├── remote-session-scripts/  # Ações remotas genéricas incorporadas ao executável
 ├── public/                  # Arquivos públicos
 ├── src/                     # Interface React
 │   ├── components/          # Ferramentas e componentes
@@ -531,12 +530,12 @@ As tarefas que exigem acesso ao sistema operacional são executadas pela camada 
 
 Para compilar o projeto no Windows, instale:
 
-* Node.js LTS;
-* npm;
-* Rust;
-* Microsoft C++ Build Tools;
-* Microsoft Edge WebView2;
-* Git.
+- Node.js LTS;
+- npm;
+- Rust;
+- Microsoft C++ Build Tools;
+- Microsoft Edge WebView2;
+- Git.
 
 No instalador do Visual Studio Build Tools, selecione:
 
@@ -580,10 +579,10 @@ npm run tauri dev
 
 O comando inicia:
 
-* o servidor Vite;
-* a interface React;
-* a compilação Rust;
-* a janela desktop do Tauri.
+- o servidor Vite;
+- a interface React;
+- a compilação Rust;
+- a janela desktop do Tauri.
 
 Para executar apenas o frontend:
 
@@ -605,10 +604,10 @@ npm run tauri build
 
 O processo gera:
 
-* aplicação compilada;
-* executável;
-* pacotes de instalação compatíveis com a configuração;
-* arquivos de distribuição na pasta de bundle do Tauri.
+- aplicação compilada;
+- executável;
+- pacotes de instalação compatíveis com a configuração;
+- arquivos de distribuição na pasta de bundle do Tauri.
 
 Antes de gerar uma nova versão, atualize a versão em:
 
@@ -656,9 +655,9 @@ Exemplo:
 
 Significa:
 
-* quinta geração principal do aplicativo;
-* duas melhorias funcionais;
-* uma correção de erro.
+- quinta geração principal do aplicativo;
+- duas melhorias funcionais;
+- uma correção de erro.
 
 ---
 
@@ -668,14 +667,14 @@ O aplicativo manipula informações potencialmente sensíveis.
 
 Recomendações:
 
-* não mantenha senhas no histórico da área de transferência;
-* revise o histórico antes de compartilhar o computador;
-* confirme o certificado antes de assinar um documento;
-* não exclua certificados sem validar sua necessidade;
-* utilize apenas instaladores distribuídos por fonte confiável;
-* não execute versões modificadas sem revisão;
-* mantenha cópias dos documentos originais;
-* valide assinaturas digitais em ferramenta apropriada quando necessário.
+- não mantenha senhas no histórico da área de transferência;
+- revise o histórico antes de compartilhar o computador;
+- confirme o certificado antes de assinar um documento;
+- não exclua certificados sem validar sua necessidade;
+- utilize apenas instaladores distribuídos por fonte confiável;
+- não execute versões modificadas sem revisão;
+- mantenha cópias dos documentos originais;
+- valide assinaturas digitais em ferramenta apropriada quando necessário.
 
 A assinatura digital utiliza a chave privada por meio do provedor criptográfico do Windows. A chave privada não é exportada pelo aplicativo.
 
@@ -683,15 +682,15 @@ A assinatura digital utiliza a chave privada por meio do provedor criptográfico
 
 ## Limitações conhecidas
 
-* algumas funções são exclusivas do Windows;
-* a assinatura PAdES suporta atualmente certificados RSA;
-* certificados ECDSA não são suportados;
-* a compressão de PDF não reduz diretamente a resolução das imagens;
-* o status dos serviços indica acessibilidade, não disponibilidade oficial;
-* o histórico registra somente conteúdo textual;
-* não existe sincronização em nuvem;
-* configurações locais não são compartilhadas entre computadores;
-* fechar a janela não encerra o aplicativo.
+- algumas funções são exclusivas do Windows;
+- a assinatura PAdES suporta atualmente certificados RSA;
+- certificados ECDSA não são suportados;
+- a compressão de PDF não reduz diretamente a resolução das imagens;
+- o status dos serviços indica acessibilidade, não disponibilidade oficial;
+- o histórico registra somente conteúdo textual;
+- não existe sincronização em nuvem;
+- configurações locais não são compartilhadas entre computadores;
+- fechar a janela não encerra o aplicativo.
 
 ---
 
@@ -753,14 +752,14 @@ Este projeto foi desenvolvido para apoiar as rotinas internas da **AD CONTEC Con
 
 Antes de distribuir publicamente, recomenda-se definir formalmente:
 
-* licença de uso;
-* política de privacidade;
-* processo de atualização;
-* assinatura do instalador;
-* canal oficial de distribuição;
-* responsável pela manutenção;
-* política de suporte;
-* procedimento de reporte de vulnerabilidades.
+- licença de uso;
+- política de privacidade;
+- processo de atualização;
+- assinatura do instalador;
+- canal oficial de distribuição;
+- responsável pela manutenção;
+- política de suporte;
+- procedimento de reporte de vulnerabilidades.
 
 ---
 

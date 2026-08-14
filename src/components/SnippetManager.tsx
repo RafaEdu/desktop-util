@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
+import { logSafeError } from "../lib/safeLogger";
 
 interface Snippet {
   id: string;
@@ -53,8 +54,8 @@ export function SnippetManager() {
       await invoke("clipboard_write_text", { text });
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      console.error("Falha ao copiar", err);
+    } catch {
+      logSafeError("SNIPPET_COPY_FAILED");
     }
   };
 

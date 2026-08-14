@@ -1,11 +1,16 @@
-﻿[CmdletBinding()]
-param()
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$')]
+    [string]$Server,
+
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$')]
+    [string]$ExpectedDomain
+)
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-$Server = "SRV-IBM"
-$ExpectedDomain = "ADCONTEC"
 $TimeoutMilliseconds = 30000
 
 function Complete-Action {
@@ -32,7 +37,7 @@ function Complete-Action {
 function Get-CurrentUserSessionId {
     $queryOutput = @(& "$env:SystemRoot\System32\quser.exe" $env:USERNAME "/server:$Server" 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        Complete-Action $false "session-query-failed" "Não foi possível localizar sua sessão no SRV-IBM. Verifique a conexão de rede ou contate o suporte."
+        Complete-Action $false "session-query-failed" "Não foi possível localizar sua sessão no servidor remoto. Verifique a conexão de rede ou contate o suporte."
     }
 
     $sessionIds = @()
@@ -54,7 +59,7 @@ function Get-CurrentUserSessionId {
 
     $sessionIds = @($sessionIds | Sort-Object -Unique)
     if ($sessionIds.Count -eq 0) {
-        Complete-Action $false "session-not-found" "Nenhuma sessão sua foi encontrada no SRV-IBM."
+        Complete-Action $false "session-not-found" "Nenhuma sessão sua foi encontrada no servidor remoto."
     }
     if ($sessionIds.Count -gt 1) {
         Complete-Action $false "multiple-sessions" "Foram encontradas várias sessões para seu usuário. Por segurança, nenhuma ação foi executada; contate o suporte."
@@ -90,7 +95,7 @@ function Invoke-Logoff {
 
 try {
     if ($env:USERDOMAIN -ine $ExpectedDomain -or [string]::IsNullOrWhiteSpace($env:USERNAME)) {
-        Complete-Action $false "invalid-identity" "Esta ação está disponível somente para usuários do domínio ADCONTEC."
+        Complete-Action $false "invalid-identity" "Esta ação está disponível somente para usuários do domínio corporativo."
     }
 
     $sessionId = Get-CurrentUserSessionId
@@ -100,10 +105,10 @@ try {
         Complete-Action $false "logoff-timeout" "O servidor demorou para responder ao pedido de encerramento. Aguarde e tente abrir o Domínio novamente." $sessionId
     }
     if ($execution.ExitCode -ne 0) {
-        Complete-Action $false "logoff-failed" "Não foi possível encerrar sua sessão no SRV-IBM. Contate o suporte." $sessionId
+        Complete-Action $false "logoff-failed" "Não foi possível encerrar sua sessão remota. Contate o suporte." $sessionId
     }
 
-    Complete-Action $true "logoff-requested" "O encerramento da sua sessão foi solicitado ao SRV-IBM. Aguarde alguns segundos antes de abrir o Domínio novamente." $sessionId
+    Complete-Action $true "logoff-requested" "O encerramento da sua sessão foi solicitado. Aguarde alguns segundos antes de abrir o Domínio novamente." $sessionId
 }
 catch {
     Complete-Action $false "unexpected-error" "Ocorreu um erro inesperado ao tentar encerrar sua sessão. Contate o suporte."

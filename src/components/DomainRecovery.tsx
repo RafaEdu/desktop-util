@@ -36,11 +36,11 @@ const actionContent: Record<
   close: {
     title: "Fechar todos os módulos do Domínio?",
     warning:
-      "Todas as janelas do Domínio abertas por você no SRV-IBM serão fechadas à força. Informações não salvas poderão ser perdidas.",
+      "Todas as janelas do Domínio abertas por você no servidor remoto serão fechadas à força. Informações não salvas poderão ser perdidas.",
     command: "close_dominio",
   },
   logoff: {
-    title: "Encerrar sua sessão no SRV-IBM?",
+    title: "Encerrar sua sessão remota?",
     warning:
       "Domínio, Excel, Word e todos os outros aplicativos da sua sessão serão fechados. Informações não salvas poderão ser perdidas.",
     command: "logoff_remote_session",
@@ -90,7 +90,7 @@ export function DomainRecovery() {
               </h2>
               <p className="mt-1 text-sm leading-relaxed text-fg-4">
                 Use estas opções quando o Domínio travar ou quando sua sessão no
-                SRV-IBM precisar ser reiniciada.
+                servidor remoto precisar ser reiniciada.
               </p>
             </div>
           </div>
@@ -105,8 +105,8 @@ export function DomainRecovery() {
               </h3>
             </div>
             <p className="flex-1 text-sm leading-relaxed text-fg-4">
-              Fecha somente o Domínio do seu usuário no SRV-IBM. Word, Excel e
-              os demais aplicativos permanecem abertos.
+              Fecha somente o Domínio do seu usuário no servidor remoto. Word,
+              Excel e os demais aplicativos permanecem abertos.
             </p>
             <button
               type="button"
@@ -133,7 +133,7 @@ export function DomainRecovery() {
               </h3>
             </div>
             <p className="flex-1 text-sm leading-relaxed text-fg-4">
-              Faz logoff completo da sua sessão no SRV-IBM e fecha todos os
+              Faz logoff completo da sua sessão remota e fecha todos os
               aplicativos que estiverem executando nela.
             </p>
             <button
