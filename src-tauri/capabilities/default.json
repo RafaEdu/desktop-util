@@ -12,6 +12,8 @@
     "sql:allow-select",
     "sql:allow-close",
     "autostart:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",

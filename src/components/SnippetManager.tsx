@@ -155,12 +155,12 @@ export function SnippetManager() {
             {snippets.map((snippet) => (
               <li
                 key={snippet.id}
-                className="group px-3 py-2.5 rounded-lg border bg-surface border-edge hover:border-edge-2 transition-all duration-200"
+                onClick={() => handleCopy(snippet.content, snippet.id)}
+                className="group px-3 py-2.5 rounded-lg border bg-surface border-edge hover:border-edge-2 transition-all duration-200 cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-2">
                   <button
-                    onClick={() => handleCopy(snippet.content, snippet.id)}
-                    className="flex-1 min-w-0 text-left"
+                    className="flex-1 min-w-0 text-left cursor-pointer"
                   >
                     <p className="text-sm text-fg-2 truncate">
                       {snippet.title}
@@ -172,7 +172,6 @@ export function SnippetManager() {
 
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => handleCopy(snippet.content, snippet.id)}
                       className={cn(
                         "flex-shrink-0 p-1.5 rounded-md transition-all duration-200",
                         copiedId === snippet.id
@@ -189,14 +188,20 @@ export function SnippetManager() {
                     </button>
 
                     <button
-                      onClick={() => startEdit(snippet)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(snippet);
+                      }}
                       className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-fg-6 hover:text-indigo-400"
                       title="Editar"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDelete(snippet.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(snippet.id);
+                      }}
                       className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-fg-6 hover:text-red-400"
                       title="Excluir"
                     >
