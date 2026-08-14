@@ -10,7 +10,7 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_clipboard_manager;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 
 // ── Managed State ───────────────────────────────────────────────
@@ -24,6 +24,16 @@ const WINDOW_MODE_WIDTH: f64 = 900.0;
 const WINDOW_MODE_HEIGHT: f64 = 650.0;
 const WINDOW_MODE_MIN_WIDTH: f64 = 600.0;
 const WINDOW_MODE_MIN_HEIGHT: f64 = 400.0;
+
+#[tauri::command]
+fn clipboard_write_text(
+    app: tauri::AppHandle,
+    text: String,
+) -> Result<(), String> {
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| format!("Falha ao copiar texto: {e}"))
+}
 
 fn restore_main_window(window: &tauri::WebviewWindow) {
     let _ = window.unminimize();
@@ -781,6 +791,7 @@ pub fn run() {
             delete_certificates,
             start_screen_capture,
             open_external_link,
+            clipboard_write_text,
             clipboard_history::clipboard_get_snapshot,
             clipboard_history::clipboard_set_settings,
             clipboard_history::clipboard_clear_history,

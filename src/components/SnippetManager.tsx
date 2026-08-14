@@ -8,7 +8,7 @@ import {
   MessageSquareText,
   Check,
 } from "lucide-react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { invoke } from "@tauri-apps/api/core";
 import { cn } from "../lib/cn";
 
 interface Snippet {
@@ -50,7 +50,7 @@ export function SnippetManager() {
 
   const handleCopy = async (text: string, id: string) => {
     try {
-      await writeText(text);
+      await invoke("clipboard_write_text", { text });
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
@@ -159,9 +159,7 @@ export function SnippetManager() {
                 className="group px-3 py-2.5 rounded-lg border bg-surface border-edge hover:border-edge-2 transition-all duration-200 cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <button
-                    className="flex-1 min-w-0 text-left cursor-pointer"
-                  >
+                  <button className="flex-1 min-w-0 text-left cursor-pointer">
                     <p className="text-sm text-fg-2 truncate">
                       {snippet.title}
                     </p>

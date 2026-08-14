@@ -1,64 +1,62 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window",
+  "description": "Least-privilege capabilities for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "opener:default",
-    "sql:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:window:allow-set-decorations",
+    "core:window:allow-set-size",
+    "core:window:allow-center",
+    "core:window:allow-current-monitor",
+    "core:window:allow-outer-size",
+
     "sql:allow-load",
-    "sql:allow-execute",
     "sql:allow-select",
-    "sql:allow-close",
-    "autostart:default",
-    "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text",
-    "autostart:allow-enable",
-    "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "notification:default",
+    "sql:allow-execute",
+
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "notification:allow-notify",
+
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+
     {
       "identifier": "http:default",
       "allow": [
         {
-          "url": "https://**"
+          "url": "https://www.esocial.gov.br/**"
         },
         {
-          "url": "http://**"
+          "url": "https://www.gov.br/**"
+        },
+        {
+          "url": "https://sd.maisemprego.mte.gov.br/**"
+        },
+        {
+          "url": "https://www.nfe.fazenda.gov.br/**"
+        },
+        {
+          "url": "https://cav.receita.fazenda.gov.br/**"
+        },
+        {
+          "url": "https://www.nfse.gov.br/**"
         }
       ]
     },
-    "core:window:default",
-    "core:window:allow-show",
-    "core:window:allow-hide",
-    "core:window:allow-close",
-    "core:window:allow-set-focus",
-    "core:window:allow-is-visible",
-    "core:window:allow-set-position",
-    "core:window:allow-set-decorations",
-    "core:window:allow-set-resizable",
-    "core:window:allow-set-always-on-top",
-    "core:window:allow-set-size",
-    "core:window:allow-set-min-size",
-    "core:window:allow-set-max-size",
-    "core:window:allow-current-monitor",
-    "core:window:allow-outer-size",
-    "core:tray:default",
-    "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save",
-    "fs:default",
+
     {
       "identifier": "fs:allow-read-file",
       "allow": [
         {
-          "path": "$HOME/**"
-        },
-        {
           "path": "$DESKTOP/**"
         },
         {
@@ -72,25 +70,7 @@
         }
       ]
     },
-    {
-      "identifier": "fs:allow-write-file",
-      "allow": [
-        {
-          "path": "$HOME/**"
-        },
-        {
-          "path": "$DESKTOP/**"
-        },
-        {
-          "path": "$DOCUMENT/**"
-        },
-        {
-          "path": "$DOWNLOAD/**"
-        },
-        {
-          "path": "$TEMP/**"
-        }
-      ]
-    }
+
+    "fs:allow-write-file"
   ]
 }
